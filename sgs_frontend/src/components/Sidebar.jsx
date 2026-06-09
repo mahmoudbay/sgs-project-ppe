@@ -1,165 +1,139 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard,
-  Users,
-  DollarSign,
-  BookOpen,
-  FileText,
-  Settings,
-  ChevronRight,
-  Menu,
-  X,
-} from 'lucide-react';
+  LayoutDashboard, Users, DollarSign, BookOpen, FileText, Settings,
+  ChevronRight, X,
+} from "lucide-react";
 
-/**
- * Sidebar Component
- * 
- * Displays the main navigation menu with role-based access control.
- * Shows different menu items based on user permissions.
- */
-export default function Sidebar({ isOpen, onToggle, user, hasPermission }) {
-  const location = useLocation();
-
-  const menuItems = [
+function useNavSections() {
+  const { t } = useTranslation();
+  return [
     {
-      label: 'Tableau de Bord',
-      path: '/dashboard',
-      icon: LayoutDashboard,
-      permission: null,
+      label: t('sidebar.principal'),
+      items: [
+        { label: t('sidebar.dashboard'), path: "/dashboard", icon: LayoutDashboard, permission: null },
+      ],
     },
     {
-      label: 'Ressources Humaines',
-      path: '/rh',
-      icon: Users,
-      permission: 'demande_rh',
+      label: t('sidebar.modules'),
+      items: [
+        { label: t('sidebar.rh'), path: "/rh", icon: Users, permission: ["hr:read_own", "hr:read_all"], badge: 3 },
+        { label: t('sidebar.finance'), path: "/finance", icon: DollarSign, permission: ["finance:read", "finance:manage_expense", "finance:manage_revenue"] },
+        { label: t('sidebar.school'), path: "/school-life", icon: BookOpen, permission: ["students:read", "students:manage"], excludeAdmin: true },
+        { label: t('sidebar.documents'), path: "/documents", icon: FileText, permission: ["certificates:generate", "grades:manage"] },
+      ],
     },
     {
-      label: 'Gestion Financière',
-      path: '/finance',
-      icon: DollarSign,
-      permission: 'gestion_financiere',
-    },
-    {
-      label: 'Vie Scolaire',
-      path: '/school-life',
-      icon: BookOpen,
-      permission: 'dossiers_eleves',
-    },
-    {
-      label: 'Documents Scolaires',
-      path: '/documents',
-      icon: FileText,
-      permission: 'generation_certificats',
-    },
-    {
-      label: 'Administration',
-      path: '/admin/users',
-      icon: Settings,
-      permission: null,
-      adminOnly: true,
+      label: t('sidebar.system'),
+      items: [
+        { label: t('sidebar.admin'), path: "/admin/users", icon: Settings, permission: "users:manage", adminOnly: true },
+      ],
     },
   ];
+}
 
-  const isActive = (path) => {
-    return location.pathname.startsWith(path);
-  };
+export default function Sidebar({ isOpen, onToggle, user, hasPermission }) {
+  const navSections = useNavSections();
+  const location = useLocation();
 
-  const filteredMenuItems = menuItems.filter((item) => {
-    if (item.adminOnly) {
-      return user?.role === 'admin';
-    }
-    if (item.permission) {
-      return hasPermission(item.permission);
-    }
+  const isActive = (path) => location.pathname.startsWith(path);
+
+  const isItemVisible = (item) => {
+    if (item.adminOnly) return user?.role === "administrateur";
+    if (item.excludeAdmin && user?.role === "administrateur") return false;
+    if (item.permission) return hasPermission(item.permission);
     return true;
-  });
+  };
 
   return (
     <>
-      {/* Mobile Toggle Button */}
-      <button
-        onClick={onToggle}
-        className="fixed top-4 left-4 z-40 lg:hidden p-2 bg-white rounded-lg shadow-md"
-      >
-        {isOpen ? <X size={24} /> : <Menu size={24} />}
-      </button>
-
-      {/* Sidebar */}
       <aside
         className={`${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } fixed lg:relative lg:translate-x-0 z-30 h-screen w-64 bg-gradient-to-b from-gray-900 to-gray-800 text-white transition-transform duration-300 ease-in-out`}
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        } fixed lg:relative lg:translate-x-0 z-30 h-screen w-64 bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white transition-all duration-300 ease-in-out flex flex-col`}
       >
-        {/* Sidebar Header */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="p-5 border-b border-gray-700/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-lg flex items-center justify-center font-bold text-lg">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-xl flex items-center justify-center font-bold text-lg shadow-lg">
               SGS
             </div>
             <div>
-              <h2 className="text-lg font-bold">SGS</h2>
-              <p className="text-xs text-gray-400">Gestion Scolaire</p>
+              <h2 className="text-base font-bold leading-tight">SGS</h2>
+              <p className="text-[10px] text-gray-400 tracking-wide">Collège Ibn Battouta</p>
+            </div>
+            <button onClick={onToggle} className="lg:hidden ml-auto p-1 text-gray-400 hover:text-white transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4 py-3 mx-3 mt-3 bg-white/5 rounded-xl backdrop-blur-sm border border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-white text-xs font-bold shadow-sm bg-gradient-to-br from-blue-400 to-indigo-500">
+              {user?.photo ? (
+                <img src={`http://localhost:5000${user.photo}`} alt="" className="w-full h-full object-cover" />
+              ) : (
+                user?.initiales || user?.nom?.charAt(0) || "U"
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.prenom} {user?.nom}</p>
+              <p className="text-[11px] text-gray-400 capitalize truncate">{user?.role?.replace("_", " ")}</p>
             </div>
           </div>
         </div>
 
-        {/* User Info */}
-        <div className="p-4 bg-gray-800 border-b border-gray-700">
-          <p className="text-sm font-medium text-gray-100">
-            {user?.prenom} {user?.nom}
-          </p>
-          <p className="text-xs text-gray-400 capitalize mt-1">
-            {user?.role?.replace('_', ' ')}
-          </p>
-        </div>
-
-        {/* Navigation Menu */}
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          {filteredMenuItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.path);
-
+        <nav className="flex-1 px-3 py-4 overflow-y-auto">
+          {navSections.map((section) => {
+            const visibleItems = section.items.filter(isItemVisible);
+            if (visibleItems.length === 0) return null;
             return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => {
-                  if (window.innerWidth < 1024) {
-                    onToggle();
-                  }
-                }}
-                className={`flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 ${
-                  active
-                    ? 'bg-blue-600 text-white shadow-lg'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon size={20} />
-                  <span className="font-medium">{item.label}</span>
+              <div key={section.label} className="mb-4">
+                <div className="px-3 mb-1">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{section.label}</span>
                 </div>
-                {active && <ChevronRight size={18} />}
-              </Link>
+                {visibleItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item.path);
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => { if (window.innerWidth < 1024) onToggle(); }}
+                      className={`group flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                        active
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
+                          : "text-gray-300 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} className={active ? "" : "text-gray-400 group-hover:text-white transition-colors"} />
+                        <span className="font-medium text-sm">{item.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {item.badge && (
+                          <span className="px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded-full">{item.badge}</span>
+                        )}
+                        {active && <ChevronRight size={16} className="animate-fade-in" />}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
 
-        {/* Sidebar Footer */}
-        <div className="p-4 border-t border-gray-700 bg-gray-800">
-          <div className="text-xs text-gray-400 space-y-1">
-            <p>SGS v1.0</p>
-            <p>© 2024 College Borj Azaitoune</p>
+        <div className="px-5 py-4 border-t border-gray-700/50 bg-gray-800/50">
+          <div className="text-[11px] text-gray-500 space-y-0.5">
+            <p>SGS v2.0</p>
+            <p>© 2026 College Borj Azaitoune</p>
           </div>
         </div>
       </aside>
 
-      {/* Mobile Overlay */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
-          onClick={onToggle}
-        />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 lg:hidden animate-fade-in" onClick={onToggle} />
       )}
     </>
   );

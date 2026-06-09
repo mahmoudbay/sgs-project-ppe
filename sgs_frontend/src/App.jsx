@@ -1,29 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
-
-// Components
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import Notifications from './components/Notifications';
 
-// Pages
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 
-// Modules
 import RHModule from './pages/modules/RHModule';
 import FinanceModule from './pages/modules/FinanceModule';
 import SchoolLifeModule from './pages/modules/SchoolLifeModule';
 import DocumentsModule from './pages/modules/DocumentsModule';
 
-// Admin
 import UserManagement from './pages/admin/UserManagement';
-
-const API_BASE_URL = 'http://localhost:5000/api';
+import Profile from './pages/Profile';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -34,24 +30,39 @@ api.interceptors.request.use((config) => {
 });
 
 export default function App() {
+  const { t } = useTranslation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
 
   useEffect(() => {
-    const initializeAuth = async () => {
-      const token = localStorage.getItem('authToken');
-      const storedUser = localStorage.getItem('user');
-      if (token && storedUser) {
-        setUser(JSON.parse(storedUser));
-        setIsAuthenticated(true);
-      }
-      setLoading(false);
-    };
-    initializeAuth();
+    const savedLang = localStorage.getItem('i18nextLng') || 'fr';
+    document.documentElement.dir = savedLang.startsWith('ar') ? 'rtl' : 'ltr';
+    document.documentElement.lang = savedLang;
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    const storedUser = localStorage.getItem('user');
+    if (token && storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+        setIsAuthenticated(true);
+        fetchNotifications(parsed.id);
+      } catch { /* invalid, will redirect to login */ }
+    }
+    setLoading(false);
+  }, []);
+
+  const fetchNotifications = async (userId) => {
+    try {
+      const res = await api.get(`/notifications/user/${userId}`);
+      setNotifications(res.data);
+    } catch {}
+  };
 
   const handleLogin = async (email, password) => {
     try {
@@ -61,54 +72,112 @@ export default function App() {
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
       setIsAuthenticated(true);
+      fetchNotifications(userData.id);
       return { success: true };
     } catch (error) {
-      return { success: false, message: "Erreur de connexion" };
+      return { success: false, message: "Email ou mot de passe incorrect" };
     }
   };
 
-  const hasPermission = (functionality) => {
-    const rolePermissions = {
-      admin: ['gestion_comptes', 'demande_rh', 'validation_demande_rh', 'gestion_financiere', 'dossiers_eleves', 'generation_certificats', 'resultats_scolaires', 'tableau_bord'],
-      employe: ['demande_rh', 'consultation_dossiers'],
-      service_financier: ['gestion_financiere'],
-      surveillant_general: ['gestion_financiere', 'dossiers_eleves', 'resultats_scolaires'],
-      direction: ['consultation_dossiers', 'validation_demande_rh', 'tableau_bord'],
-    };
-    return (rolePermissions[user?.role] || []).includes(functionality);
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    setUser(null);
+    setIsAuthenticated(false);
   };
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen">Chargement...</div>;
+  const hasPermission = (requiredPermissions) => {
+    if (!user) return false;
+    if (user.role === 'administrateur') return true;
+    if (!user.permissions) return false;
+    if (typeof requiredPermissions === 'string') {
+      return user.permissions.includes(requiredPermissions);
+    }
+    if (Array.isArray(requiredPermissions)) {
+      return requiredPermissions.some(p => user.permissions.includes(p));
+    }
+    return false;
+  };
 
-  if (!isAuthenticated) return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login onLogin={handleLogin} />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </Router>
-  );
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
+          <p className="text-white/60 text-sm animate-pulse">{t('app.loading')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login onLogin={handleLogin} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Router>
+    );
+  }
 
   return (
     <Router>
       <div className="flex h-screen bg-gray-100">
         <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} user={user} hasPermission={hasPermission} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar user={user} onLogout={() => setIsAuthenticated(false)} notifications={notifications} unreadCount={0} />
+          <Navbar
+            user={user}
+            api={api}
+            onLogout={handleLogout}
+            notifications={notifications}
+            unreadCount={notifications.filter(n => !n.lu).length}
+            onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+            onNotificationsUpdate={fetchNotifications}
+          />
           <Notifications notifications={notifications} />
           <main className="flex-1 overflow-auto">
-            <Routes>
-              <Route path="/dashboard" element={<Dashboard user={user} api={api} hasPermission={hasPermission} />} />
-              <Route path="/rh/*" element={<RHModule user={user} api={api} hasPermission={hasPermission} />} />
-              <Route path="/finance/*" element={<FinanceModule user={user} api={api} hasPermission={hasPermission} />} />
-              <Route path="/school-life/*" element={<SchoolLifeModule user={user} api={api} hasPermission={hasPermission} />} />
-              <Route path="/documents/*" element={<DocumentsModule user={user} api={api} hasPermission={hasPermission} />} />
-              {user?.role === 'admin' && <Route path="/admin/users" element={<UserManagement api={api} user={user} />} />}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
+            <AnimatedRoutes user={user} api={api} hasPermission={hasPermission} setNotifications={setNotifications} setUser={setUser} />
           </main>
         </div>
       </div>
     </Router>
+  );
+}
+
+function AnimatedRoutes({ user, api, hasPermission, setUser }) {
+  const { t } = useTranslation();
+  const location = useLocation();
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -12 }}
+        transition={{ duration: 0.2, ease: "easeInOut" }}
+      >
+        <Routes location={location}>
+          <Route path="/dashboard" element={<Dashboard user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/rh/*" element={<RHModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/finance/*" element={<FinanceModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/school-life/*" element={<SchoolLifeModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/documents/*" element={<DocumentsModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/profile" element={<Profile api={api} user={user} setUser={setUser} />} />
+          {user?.role === 'administrateur' && <Route path="/admin/users" element={<UserManagement api={api} user={user} />} />}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={
+            <div className="flex flex-col items-center justify-center min-h-full text-gray-400">
+              <div className="text-6xl font-black text-gray-200 mb-4">404</div>
+              <p className="text-lg font-medium">{t('errors.notFound')}</p>
+              <a href="/dashboard" className="mt-4 text-blue-600 hover:text-blue-800 text-sm font-medium">{t('errors.backToDashboard')}</a>
+            </div>
+          } />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
   );
 }

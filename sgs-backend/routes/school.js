@@ -1,0 +1,335 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const pool = require('../db');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads', 'absences')),
+  filename: (req, file, cb) => cb(null, `justif_${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
+});
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+const router = express.Router();
+
+router.get('/', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || '';
+
+    let whereClause = '';
+    const params = [];
+    if (search) {
+      whereClause = 'WHERE nom ILIKE $1 OR prenom ILIKE $1 OR id_massar ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    const countResult = await pool.query(`SELECT COUNT(*)::int AS count FROM eleves ${whereClause}`, params);
+    const total = countResult.rows[0].count;
+
+    const orderClause = search
+      ? `ORDER BY CASE WHEN nom ILIKE $${params.length + 1} THEN 0 ELSE 1 END, nom ASC`
+      : 'ORDER BY nom ASC';
+    if (search) params.push(`${search}%`);
+
+    const result = await pool.query(
+      `SELECT * FROM eleves ${whereClause} ${orderClause} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    res.json({ data: result.rows, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    res.json({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
+  }
+});
+
+router.get('/all', async (req, res) => {
+  try {
+    const eleves = await pool.query('SELECT * FROM eleves ORDER BY nom ASC');
+    const resultats = await pool.query(`
+      SELECT DISTINCT ON (massar_id, eleve_name) massar_id, eleve_name, niveau
+      FROM resultats
+      WHERE massar_id IS NOT NULL AND eleve_name IS NOT NULL
+        AND massar_id NOT IN (SELECT COALESCE(id_massar, '') FROM eleves WHERE id_massar IS NOT NULL)
+      ORDER BY massar_id, eleve_name
+    `);
+
+    const combined = [
+      ...eleves.rows,
+      ...resultats.rows.map((r, i) => {
+        const parts = (r.eleve_name || '').trim().split(/\s+/);
+        return {
+          id: `r_${i + 1}`,
+          id_massar: r.massar_id,
+          nom: parts.slice(1).join(' ') || parts[0] || '',
+          prenom: parts[0] || '',
+          classe: null,
+          niveau: r.niveau,
+          date_naissance: null,
+          absences: 0,
+          absences_justifiees: 0,
+          source: 'resultats',
+        };
+      }),
+    ];
+
+    res.json(combined);
+  } catch (err) {
+    console.error("Fetch All Eleves Error:", err.message);
+    res.json([]);
+  }
+});
+
+router.put('/:id/absences', async (req, res) => {
+  const { id } = req.params;
+  const { absences, absences_justifiees } = req.body;
+  try {
+    const updates = [];
+    const values = [];
+    let idx = 1;
+    if (absences !== undefined) { updates.push(`absences = $${idx++}`); values.push(absences); }
+    if (absences_justifiees !== undefined) { updates.push(`absences_justifiees = $${idx++}`); values.push(absences_justifiees); }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    values.push(id);
+    await pool.query(`UPDATE eleves SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Helper: update eleves counters from absence_records ---
+async function updateEleveCounters(eleve_id) {
+  await pool.query(
+    `UPDATE eleves SET
+      absences = (SELECT COUNT(*) FROM absence_records WHERE eleve_id = $1 AND justifie = false),
+      absences_justifiees = (SELECT COUNT(*) FROM absence_records WHERE eleve_id = $1 AND justifie = true)
+    WHERE id = $1`,
+    [eleve_id]
+  );
+}
+
+// --- Helper: check alert threshold and create notification ---
+async function checkAlertThreshold(eleve_id) {
+  const eleve = await pool.query('SELECT nom, prenom, absences FROM eleves WHERE id = $1', [eleve_id]);
+  if (!eleve.rows.length) return;
+  const { nom, prenom, absences } = eleve.rows[0];
+  if (absences >= 10) {
+    const adminUsers = await pool.query("SELECT id FROM users WHERE role IN ('direction', 'surveillant', 'admin')");
+    for (const u of adminUsers.rows) {
+      await pool.query(
+        "INSERT INTO notifications (user_id, type, message, temps, lu) VALUES ($1, 'absence', $2, NOW(), false)",
+        [u.id, `Alerte : ${prenom} ${nom} a dépassé ${absences}h d'absences`]
+      );
+    }
+  }
+}
+
+// --- Absence Records CRUD ---
+
+router.get('/absences/records', async (req, res) => {
+  try {
+    const { date, eleve_id, niveau, month, year } = req.query;
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+    if (date) { conditions.push(`a.date = $${idx++}`); params.push(date); }
+    if (eleve_id) { conditions.push(`a.eleve_id = $${idx++}`); params.push(eleve_id); }
+    if (niveau) { conditions.push(`e.niveau = $${idx++}`); params.push(niveau); }
+    if (month && year) {
+      conditions.push(`EXTRACT(MONTH FROM a.date) = $${idx++}::int`);
+      params.push(parseInt(month));
+      conditions.push(`EXTRACT(YEAR FROM a.date) = $${idx++}::int`);
+      params.push(parseInt(year));
+    }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const result = await pool.query(`
+      SELECT a.*, e.nom, e.prenom, e.id_massar, e.niveau, e.classe
+      FROM absence_records a
+      LEFT JOIN eleves e ON a.eleve_id = e.id
+      ${where}
+      ORDER BY a.date DESC, e.nom ASC
+    `, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/absences/records', async (req, res) => {
+  const { eleve_id, date, justifie, motif, justificatif } = req.body;
+  if (!eleve_id) return res.status(400).json({ error: 'eleve_id is required' });
+  try {
+    const result = await pool.query(
+      'INSERT INTO absence_records (eleve_id, date, justifie, motif, justificatif) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [eleve_id, date || new Date().toISOString().split('T')[0], justifie || false, motif || null, justificatif || null]
+    );
+    await updateEleveCounters(eleve_id);
+    await checkAlertThreshold(eleve_id);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/absences/records/batch', async (req, res) => {
+  const { eleve_ids, date, justifie, motif } = req.body;
+  if (!eleve_ids || !Array.isArray(eleve_ids) || eleve_ids.length === 0) {
+    return res.status(400).json({ error: 'eleve_ids array is required' });
+  }
+  try {
+    const inserted = [];
+    for (const id of eleve_ids) {
+      const r = await pool.query(
+        'INSERT INTO absence_records (eleve_id, date, justifie, motif) VALUES ($1, $2, $3, $4) RETURNING *',
+        [id, date || new Date().toISOString().split('T')[0], justifie || false, motif || null]
+      );
+      inserted.push(r.rows[0]);
+      await updateEleveCounters(id);
+      await checkAlertThreshold(id);
+    }
+    res.json(inserted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/absences/records/:id', async (req, res) => {
+  const { id } = req.params;
+  const { date, justifie, motif, justificatif } = req.body;
+  try {
+    const sets = [];
+    const vals = [];
+    let idx = 1;
+    if (date !== undefined) { sets.push(`date = $${idx++}`); vals.push(date); }
+    if (justifie !== undefined) { sets.push(`justifie = $${idx++}`); vals.push(justifie); }
+    if (motif !== undefined) { sets.push(`motif = $${idx++}`); vals.push(motif); }
+    if (justificatif !== undefined) { sets.push(`justificatif = $${idx++}`); vals.push(justificatif); }
+    if (sets.length === 0) return res.status(400).json({ error: 'No fields' });
+    vals.push(id);
+    const result = await pool.query(
+      `UPDATE absence_records SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      vals
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    await updateEleveCounters(result.rows[0].eleve_id);
+    await checkAlertThreshold(result.rows[0].eleve_id);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/absences/records/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const rec = await pool.query('DELETE FROM absence_records WHERE id = $1 RETURNING *', [id]);
+    if (rec.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    await updateEleveCounters(rec.rows[0].eleve_id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- File Upload for justificatif ---
+
+router.post('/absences/records/:id/upload', upload.single('justificatif'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Aucun fichier fourni' });
+    const filePath = `/uploads/absences/${req.file.filename}`;
+    const result = await pool.query(
+      'UPDATE absence_records SET justificatif = $1 WHERE id = $2 RETURNING *',
+      [filePath, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Absence non trouvée' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Statistics ---
+
+router.get('/absences/stats', async (req, res) => {
+  try {
+    const byNiveau = await pool.query(`
+      SELECT e.niveau,
+        COUNT(a.id) AS total,
+        COUNT(*) FILTER (WHERE a.justifie = true) AS justifiees,
+        COUNT(*) FILTER (WHERE a.justifie = false) AS non_justifiees,
+        COUNT(DISTINCT a.eleve_id) AS eleves_concernes
+      FROM absence_records a
+      RIGHT JOIN eleves e ON a.eleve_id = e.id
+      GROUP BY e.niveau
+      ORDER BY e.niveau
+    `);
+
+    const byMonth = await pool.query(`
+      SELECT TO_CHAR(a.date, 'YYYY-MM') AS mois,
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE a.justifie = true) AS justifiees,
+        COUNT(*) FILTER (WHERE a.justifie = false) AS non_justifiees
+      FROM absence_records a
+      GROUP BY mois
+      ORDER BY mois DESC
+      LIMIT 12
+    `);
+
+    const topAbsents = await pool.query(`
+      SELECT e.id, e.nom, e.prenom, e.niveau, COUNT(a.id) AS total_absences
+      FROM absence_records a
+      JOIN eleves e ON a.eleve_id = e.id
+      WHERE a.justifie = false
+      GROUP BY e.id, e.nom, e.prenom, e.niveau
+      ORDER BY total_absences DESC
+      LIMIT 10
+    `);
+
+    const summary = await pool.query(`
+      SELECT COUNT(*) AS total_records,
+        COUNT(*) FILTER (WHERE justifie = true) AS total_justifiees,
+        COUNT(DISTINCT eleve_id) AS total_eleves
+      FROM absence_records
+    `);
+
+    res.json({
+      byNiveau: byNiveau.rows,
+      byMonth: byMonth.rows,
+      topAbsents: topAbsents.rows,
+      summary: summary.rows[0],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Export ---
+
+router.get('/absences/export', async (req, res) => {
+  try {
+    const { date_from, date_to, niveau } = req.query;
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+    if (date_from) { conditions.push(`a.date >= $${idx++}`); params.push(date_from); }
+    if (date_to) { conditions.push(`a.date <= $${idx++}`); params.push(date_to); }
+    if (niveau) { conditions.push(`e.niveau = $${idx++}`); params.push(niveau); }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const result = await pool.query(`
+      SELECT a.date, e.nom, e.prenom, e.id_massar, e.niveau,
+        CASE WHEN a.justifie THEN 'Oui' ELSE 'Non' END AS justifie,
+        COALESCE(a.motif, '') AS motif
+      FROM absence_records a
+      JOIN eleves e ON a.eleve_id = e.id
+      ${where}
+      ORDER BY a.date DESC, e.nom ASC
+    `, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;

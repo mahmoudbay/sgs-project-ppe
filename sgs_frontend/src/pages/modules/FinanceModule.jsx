@@ -1,143 +1,327 @@
-import React, { useState, useEffect } from "react";
-import { Routes, Route, Link, useLocation } from "react-router-dom";
-import { Plus, List, BarChart3 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
+import { Plus, List, BarChart3, Loader2, Search, TrendingUp, DollarSign, ArrowUpCircle, ArrowDownCircle, Receipt } from "lucide-react";
+import { DataTable, StatusBadge } from "../../components/ui/DataTable";
+import { pushToast } from "../../components/Notifications";
+import { useTranslation } from "react-i18next";
 
-export default function FinanceModule({ user, api, hasPermission }) {
+const CATEGORIES = {
+  revenu: ["Inscription", "Frais Scolaires", "Subventions", "Dons", "Autre"],
+  depense: ["Maintenance", "Matériel", "Salaires", "Électricité", "Eau", "Fournitures", "Autre"],
+};
+
+function FinanceHeader({ hasPermission }) {
+  const { t } = useTranslation();
   const location = useLocation();
-  const [operations, setOperations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [balance, setBalance] = useState({ revenue: 0, expenses: 0 });
-
-  useEffect(() => {
-    fetchOperations();
-  }, []);
-
-  const fetchOperations = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get("/operations");
-      setOperations(response.data);
-      calculateBalance(response.data);
-    } catch (error) {
-      console.error("Error fetching operations:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const calculateBalance = (ops) => {
-    const revenue = ops
-      .filter((o) => o.type === "revenue")
-      .reduce((sum, o) => sum + o.montant, 0);
-    const expenses = ops
-      .filter((o) => o.type === "expense")
-      .reduce((sum, o) => sum + o.montant, 0);
-    setBalance({ revenue, expenses });
-  };
-
   const isActive = (path) => location.pathname.includes(path);
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Gestion Financière</h1>
-        <p className="text-gray-600 mt-2">Suivi des revenus et des dépenses de l'établissement</p>
-      </div>
-
-      <div className="flex gap-4 border-b border-gray-200">
-        <Link to="list" className={`px-4 py-3 font-medium border-b-2 transition ${isActive("list") ? "text-blue-600 border-blue-600" : "text-gray-600 border-transparent hover:text-gray-900"}`}>
-          <List className="inline mr-2" size={18} /> Opérations
-        </Link>
-        <Link to="new" className={`px-4 py-3 font-medium border-b-2 transition ${isActive("new") ? "text-blue-600 border-blue-600" : "text-gray-600 border-transparent hover:text-gray-900"}`}>
-          <Plus className="inline mr-2" size={18} /> Nouvelle Opération
-        </Link>
-        <Link to="report" className={`px-4 py-3 font-medium border-b-2 transition ${isActive("report") ? "text-blue-600 border-blue-600" : "text-gray-600 border-transparent hover:text-gray-900"}`}>
-          <BarChart3 className="inline mr-2" size={18} /> Bilan
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <p className="text-gray-600 text-sm font-medium">Revenus Totaux</p>
-          <p className="text-3xl font-bold text-green-600 mt-2">{balance.revenue.toFixed(2)} DH</p>
+    <div className="bg-white border-b border-gray-200 px-6 py-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{t('finance.title')}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">{t('finance.headerSubtitle')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <p className="text-gray-600 text-sm font-medium">Dépenses Totales</p>
-          <p className="text-3xl font-bold text-red-600 mt-2">{balance.expenses.toFixed(2)} DH</p>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <p className="text-gray-600 text-sm font-medium">Solde</p>
-          <p className={`text-3xl font-bold mt-2 ${balance.revenue - balance.expenses >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {(balance.revenue - balance.expenses).toFixed(2)} DH
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+            <span className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-md cursor-pointer hover:text-gray-900">{t('finance.year')}</span>
+            <span className="px-3 py-1.5 text-xs font-semibold text-gray-900 bg-white rounded-md shadow-sm cursor-pointer">{t('finance.month')}</span>
+            <span className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-md cursor-pointer hover:text-gray-900">{t('finance.quarter')}</span>
+          </div>
+          {hasPermission("finance:manage_expense") && (
+            <Link to="/finance/new"
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                isActive("new") ? "bg-blue-600 text-white shadow-sm" : "bg-blue-600 text-white shadow-sm"
+              }`}><Plus size={16} /> {t('finance.newOperation')}</Link>
+          )}
+          <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+            {t('finance.exportPDF')}
+          </button>
+          {hasPermission("finance:generate_bilan") && (
+            <Link to="/finance/report"
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                isActive("report") ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}><BarChart3 size={16} /></Link>
+          )}
         </div>
       </div>
-
-      <Routes>
-        <Route path="list" element={<OperationsList operations={operations} loading={loading} />} />
-        <Route path="new" element={<NewOperation api={api} user={user} onSuccess={fetchOperations} />} />
-        <Route path="report" element={<FinanceReport balance={balance} />} />
-      </Routes>
     </div>
   );
 }
 
-function NewOperation({ api, user, onSuccess }) {
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({ type: "revenue", categorie: "", montant: "" });
+export default function FinanceModule({ user, api, hasPermission }) {
+  return (
+    <div className="min-h-full bg-gray-50 animate-fade-in">
+      <FinanceHeader hasPermission={hasPermission} />
+      <div className="p-6">
+        <Routes>
+          <Route index element={<Navigate to="list" replace />} />
+          <Route path="list" element={<OperationsList api={api} />} />
+          <Route path="new" element={<NewOperation api={api} user={user} />} />
+          <Route path="report" element={<BilanReport api={api} />} />
+        </Routes>
+      </div>
+    </div>
+  );
+}
+
+function Sparkline({ values, color }) {
+  const max = Math.max(...values, 1);
+  return (
+    <div className="flex items-end gap-0.5 h-8 mt-2">
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 rounded-sm" style={{ height: `${(v / max) * 100}%`, background: color }} />
+      ))}
+    </div>
+  );
+}
+
+function OperationsList({ api }) {
+  const { t } = useTranslation();
+  const [ops, setOps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState("all");
+
+  useEffect(() => {
+    api.get("/operations").then(r => setOps(r.data.data || r.data)).catch(() => pushToast("error", t('finance.loadError'))).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = typeFilter === "all" ? ops : ops.filter(o => o.type === typeFilter);
+  const totalRevenus = ops.filter(o => o.type === "revenu").reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+  const totalDepenses = ops.filter(o => o.type === "depense").reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+  const solde = totalRevenus - totalDepenses;
+
+  const columns = [
+    { key: "type", label: t('finance.type'), sortable: true, render: (o) => (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+        o.type === "revenu" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+      }`}>
+        {o.type === "revenu" ? <ArrowUpCircle size={14} /> : <ArrowDownCircle size={14} />}
+        {o.type === "revenu" ? t('finance.revenu') : t('finance.depense')}
+      </span>
+    )},
+    { key: "categorie", label: t('finance.category'), sortable: true, render: (o) => <span className="font-medium text-gray-600">{o.categorie || "—"}</span> },
+    { key: "description", label: t('finance.description'), render: (o) => <span className="text-gray-700">{o.description || "—"}</span> },
+    { key: "montant", label: t('finance.amount'), sortable: true, render: (o) => <span className="font-bold text-gray-900">{parseFloat(o.montant).toLocaleString()} DH</span> },
+    { key: "date", label: t('finance.date'), sortable: true, render: (o) => o.date ? new Date(o.date).toLocaleDateString("fr-FR") : "—" },
+  ];
+
+  const sparkRev = [50, 70, 45, 80, 60, 95];
+  const sparkDep = [60, 40, 75, 55, 65, 80];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm" style={{ borderTop: "3px solid #059669" }}>
+          <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-1">{t('finance.totalRevenus')}</p>
+          <p className="text-2xl font-black text-gray-900 tracking-tight">{totalRevenus.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500">{t('finance.period')}</p>
+          <Sparkline values={sparkRev} color="#86EFAC" />
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm" style={{ borderTop: "3px solid #DC2626" }}>
+          <p className="text-[10px] font-bold text-red-700 uppercase tracking-wider mb-1">{t('finance.totalDepenses')}</p>
+          <p className="text-2xl font-black text-gray-900 tracking-tight">{totalDepenses.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500">{t('finance.period')}</p>
+          <Sparkline values={sparkDep} color="#FCA5A5" />
+        </div>
+        <div className="bg-gradient-to-br from-gray-900 to-blue-950 rounded-2xl p-5 shadow-sm text-white">
+          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-1">{t('finance.balance')}</p>
+          <p className="text-2xl font-black tracking-tight text-white">+{solde.toLocaleString()}</p>
+          <p className="text-[11px] text-blue-300">{t('finance.balanceLabel')}</p>
+          <div className="mt-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-blue-300">{t('finance.budgetRate')}</span>
+              <span className="text-blue-400 font-bold">71%</span>
+            </div>
+            <div className="bg-white/10 rounded-full h-1.5 mt-1 overflow-hidden">
+              <div className="h-full rounded-full bg-blue-400" style={{ width: "71%" }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-bold text-gray-900">{t('finance.latestOps')}</h2>
+        <div className="flex gap-2 flex-wrap">
+          {["all", "revenu", "depense"].map(typ => (
+            <button key={typ} onClick={() => setTypeFilter(typ)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                typeFilter === typ ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}>
+              {typ === "all" ? t('finance.allTypes') : typ === "revenu" ? t('finance.revenus') : t('finance.depenses')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <DataTable
+        columns={columns}
+        data={filtered}
+        loading={loading}
+        searchable
+        searchKeys={["description", "categorie"]}
+        searchPlaceholder={t('finance.searchPlaceholder')}
+        pageSize={10}
+        emptyTitle={t('finance.noOps')}
+        emptyDescription={t('finance.noOpsDesc')}
+      />
+    </div>
+  );
+}
+
+function NewOperation({ api, user }) {
+  const { t } = useTranslation();
+  const [type, setType] = useState("revenu");
+  const [categorie, setCategorie] = useState(CATEGORIES.revenu[0]);
+  const [description, setDescription] = useState("");
+  const [montant, setMontant] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setCategorie(CATEGORIES[type][0]); }, [type]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      setLoading(true);
-      await api.post("/operations", { ...formData, montant: parseFloat(formData.montant), saisie_par: user.id });
-      onSuccess();
-      alert("Opération enregistrée avec succès");
-    } catch (error) {
-      alert("Erreur lors de l'enregistrement");
-    } finally {
-      setLoading(false);
+    if (!montant || parseFloat(montant) <= 0) {
+      pushToast("error", t('finance.invalidAmount'));
+      return;
     }
+    setSaving(true);
+    try {
+      await api.post("/operations", { type, categorie, description, montant: parseFloat(montant), date, saisie_par: user.id });
+      pushToast("success", t('finance.savedSuccess'));
+      setDescription(""); setMontant(""); setDate(new Date().toISOString().split("T")[0]);
+    } catch {
+      pushToast("error", t('finance.saveError'));
+    } finally { setSaving(false); }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-4 max-w-lg">
-      <h2 className="text-xl font-bold">Nouvelle Opération</h2>
-      <input type="number" placeholder="Montant (DH)" className="w-full border p-2 rounded" value={formData.montant} onChange={(e) => setFormData({ ...formData, montant: e.target.value })} required />
-      <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded">
-        {loading ? "Enregistrement..." : "Enregistrer l'Opération"}
-      </button>
-    </form>
-  );
-}
+    <div className="max-w-2xl mx-auto animate-slide-up">
+      <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm">
+        <h2 className="text-xl font-bold text-gray-900 mb-6">{t('finance.newOpTitle')}</h2>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{t('finance.type')}</label>
+              <div className="flex gap-2 flex-wrap">
+                {["revenu", "depense"].map(typ => (
+                  <button key={typ} type="button" onClick={() => setType(typ)}
+                    className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${
+                      type === typ ? (typ === "revenu" ? "bg-emerald-600 text-white shadow-sm" : "bg-red-600 text-white shadow-sm") : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}>
+                    {typ === "revenu" ? t('finance.revenu') : t('finance.depense')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{t('finance.category')}</label>
+              <select value={categorie} onChange={e => setCategorie(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100 outline-none bg-white transition-all">
+                {CATEGORIES[type]?.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
 
-function OperationsList({ operations, loading }) {
-  if (loading) return <div className="text-center py-8">Chargement...</div>;
-  return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
-      <table className="w-full text-left">
-        <thead className="bg-gray-50 border-b">
-          <tr><th className="px-6 py-3">Type</th><th className="px-6 py-3">Montant</th><th className="px-6 py-3">Statut</th></tr>
-        </thead>
-        <tbody>
-          {operations.map((op) => (
-            <tr key={op.id} className="border-b">
-              <td className="px-6 py-4 capitalize">{op.type}</td>
-              <td className={`px-6 py-4 font-bold ${op.type === "revenue" ? "text-green-600" : "text-red-600"}`}>{op.montant} DH</td>
-              <td className="px-6 py-4">{op.statut}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{t('finance.description')}</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none"
+              placeholder={t('finance.descriptionPlaceholder')} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{t('finance.amountLabel')}</label>
+              <div className="relative">
+                <DollarSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input type="number" step="0.01" min="0" value={montant} onChange={e => setMontant(e.target.value)}
+                  className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-bold focus:border-blue-300 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  placeholder="0.00" required />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{t('finance.date')}</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100 outline-none transition-all" />
+            </div>
+          </div>
+
+          <button type="submit" disabled={saving}
+            className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <><Loader2 className="animate-spin" size={18} /> {t('finance.saving')}</> : <><Plus size={18} /> {t('finance.save')}</>}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
 
-function FinanceReport({ balance }) {
+function BilanReport({ api }) {
+  const { t } = useTranslation();
+  const [ops, setOps] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get("/operations").then(r => setOps(r.data.data || r.data)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const totalRevenus = ops.filter(o => o.type === "revenu").reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+  const totalDepenses = ops.filter(o => o.type === "depense").reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+  const solde = totalRevenus - totalDepenses;
+
+  if (loading) return (
+    <div className="flex justify-center py-20">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="animate-spin text-blue-500" size={30} />
+        <p className="text-sm text-gray-400">{t('finance.loadingReport')}</p>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-xl font-bold mb-4">Bilan Financier</h2>
-      <button className="bg-blue-600 text-white px-4 py-2 rounded">Exporter en PDF</button>
+    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
+        <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Receipt size={28} className="text-blue-600" />
+        </div>
+        <h2 className="text-2xl font-black text-gray-900 mb-1">{t('finance.reportTitle')}</h2>
+        <p className="text-gray-500">{t('finance.reportDate')} {new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white rounded-2xl border-2 border-emerald-200 p-6 text-center shadow-sm hover:shadow-md transition-all">
+          <p className="text-sm text-gray-500 font-medium mb-1">{t('finance.totalRevenus')}</p>
+          <p className="text-3xl font-black text-emerald-700">{totalRevenus.toLocaleString()} DH</p>
+        </div>
+        <div className="bg-white rounded-2xl border-2 border-red-200 p-6 text-center shadow-sm hover:shadow-md transition-all">
+          <p className="text-sm text-gray-500 font-medium mb-1">{t('finance.totalDepenses')}</p>
+          <p className="text-3xl font-black text-red-700">{totalDepenses.toLocaleString()} DH</p>
+        </div>
+        <div className="bg-white rounded-2xl border-2 border-blue-200 p-6 text-center shadow-sm hover:shadow-md transition-all">
+          <p className="text-sm text-gray-500 font-medium mb-1">{t('finance.solde')}</p>
+          <p className={`text-3xl font-black ${solde >= 0 ? "text-blue-700" : "text-red-700"}`}>{solde.toLocaleString()} DH</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+        <h3 className="font-bold text-gray-900 mb-4">{t('finance.detailByCategory')}</h3>
+        <div className="space-y-3">
+          {[...new Set(ops.map(o => o.categorie).filter(Boolean))].map(cat => {
+            const catRevenus = ops.filter(o => o.type === "revenu" && o.categorie === cat).reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+            const catDepenses = ops.filter(o => o.type === "depense" && o.categorie === cat).reduce((a, b) => a + parseFloat(b.montant || 0), 0);
+            const total = catRevenus - catDepenses;
+            return (
+              <div key={cat} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
+                <span className="font-semibold text-gray-700">{cat}</span>
+                <span className={`font-bold ${total >= 0 ? "text-emerald-600" : "text-red-600"}`}>{total.toLocaleString()} DH</span>
+              </div>
+            );
+          })}
+          {ops.length === 0 && <p className="text-gray-400 text-center py-4">{t('finance.noData')}</p>}
+        </div>
+      </div>
     </div>
   );
 }
