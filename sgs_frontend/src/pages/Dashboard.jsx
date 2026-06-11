@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Plus, ArrowRight,
   TrendingUp, Briefcase, Sparkles, GraduationCap,
   Receipt, ShieldCheck, UserCheck, School,
-  Loader2,
+  Loader2, ClipboardList,
 } from "lucide-react";
 import { LoadingPage, LoadingCard } from "../components/ui/LoadingSpinner";
 
@@ -290,37 +290,8 @@ function AdminDashboard({ user, api, navigate }) {
   );
 }
 
-function StatCardMaquette({ icon, iconBg, value, label, trend, trendLabel }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 animate-slide-up">
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-10 h-10 ${iconBg} rounded-xl flex items-center justify-center text-lg shadow-sm`}>
-          {icon}
-        </div>
-        {trend !== undefined && (
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-            trend >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-          }`}>
-            {trend >= 0 ? "↑" : "↓"} {Math.abs(trend)}
-          </span>
-        )}
-        {trendLabel && (
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-            trendLabel.includes("+") ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"
-          }`}>
-            {trendLabel}
-          </span>
-        )}
-      </div>
-      <p className="text-2xl font-black text-gray-900 tracking-tight">{value ?? "—"}</p>
-      <p className="text-xs text-gray-500 font-medium mt-0.5">{label}</p>
-    </div>
-  );
-}
-
 function DirectionDashboard({ user, api, navigate }) {
   const { t, i18n } = useTranslation();
-  const STATUS_CONFIG = useStatusConfig();
   const TYPE_LABELS = useTypeLabels();
   const [stats, setStats] = useState(null);
   const [financeStats, setFinanceStats] = useState(null);
@@ -370,7 +341,7 @@ function DirectionDashboard({ user, api, navigate }) {
               <School size={14} className="text-emerald-300" />
               <span className="text-emerald-300 text-xs font-medium uppercase tracking-widest">{t('dashboard.direction')}</span>
             </div>
-            <h1 className="text-2xl font-bold text-white">{t('dashboard.greeting')}, {user?.prenom || "M. Al-Fassi"}</h1>
+            <h1 className="text-2xl font-bold text-white">{t('dashboard.greeting')}, {user?.prenom || t('dashboard.director')}</h1>
             <p className="text-emerald-200 mt-1 text-sm">{dateStr} · {t('dashboard.schoolYear', { year: '2025–2026' })}</p>
           </div>
           <div className="flex gap-2">
@@ -385,10 +356,10 @@ function DirectionDashboard({ user, api, navigate }) {
       </div>
       <div className="p-6 space-y-6 -mt-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCardMaquette icon="&#x1F468;&#x200D;&#x1F393;" iconBg="bg-blue-50" value={stats?.totalStudents ?? 847} label={t('dashboard.enrolledStudents')} trendLabel="+4.2%" />
-          <StatCardMaquette icon="&#x1F468;&#x200D;&#x1F3EB;" iconBg="bg-emerald-50" value={stats?.activeUsers ?? 62} label={t('dashboard.activeTeachers')} trendLabel="+1" />
-          <StatCardMaquette icon="&#x1F4CB;" iconBg="bg-amber-50" value={pendingReqs.length || 3} label={t('dashboard.rhRequests')} trendLabel={t('dashboard.pendingCount', { count: 3 })} />
-          <StatCardMaquette icon="&#x1F4B0;" iconBg="bg-red-50" value={financeStats?.solde ? `${(financeStats.solde/1000).toFixed(0)}k` : "42k"} label={t('dashboard.monthlyBalance')} trendLabel={t('dashboard.balancePlus')} />
+          <StatCard icon={GraduationCap} color="blue" value={stats?.totalStudents ?? 0} label={t('dashboard.enrolledStudents')} />
+          <StatCard icon={Users} color="emerald" value={stats?.staffCount ?? 0} label={t('dashboard.staffCount')} />
+          <StatCard icon={ClipboardList} color="amber" value={pendingReqs.length} label={t('dashboard.rhRequests')} />
+          <StatCard icon={DollarSign} color="red" value={financeStats?.solde ? `${(financeStats.solde/1000).toFixed(0)}k` : "0"} label={t('dashboard.monthlyBalance')} />
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm animate-slide-up">
@@ -396,10 +367,6 @@ function DirectionDashboard({ user, api, navigate }) {
               <div>
                 <h2 className="font-bold text-gray-900">{t('dashboard.absences')} — {now.toLocaleDateString(locale, { month: "long", year: "numeric" })}</h2>
                 <p className="text-xs text-gray-500 mt-0.5">{t('dashboard.perWeek')}</p>
-              </div>
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-                <span className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-md cursor-pointer">{t('dashboard.month')}</span>
-                <span className="px-3 py-1.5 text-xs font-semibold text-gray-900 bg-white rounded-md shadow-sm cursor-pointer">{t('dashboard.week')}</span>
               </div>
             </div>
             <div className="flex items-end gap-1 h-16 mt-2">
@@ -437,22 +404,14 @@ function DirectionDashboard({ user, api, navigate }) {
               </button>
             </div>
             <div className="space-y-3">
-              {(pendingReqs.length > 0 ? pendingReqs : [
-                { id: 1, type: "conge_maladie", employeeName: "H. Benali", motif: "Congé maladie · 5 jours", statut: "en attente", employe_prenom: "H.", employe_nom: "Benali" },
-                { id: 2, type: "attestation_travail", employeeName: "K. Ouahbi", motif: "Attestation de travail", statut: "en attente", employe_prenom: "K.", employe_nom: "Ouahbi" },
-                { id: 3, type: "conge_exceptionnel", employeeName: "M. Rachidi", motif: "Congé exceptionnel · 2 jours", statut: "en attente", employe_prenom: "M.", employe_nom: "Rachidi" },
-              ]).slice(0, 3).map(req => (
+              {pendingReqs.slice(0, 3).map(req => (
                 <div key={req.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 hover:border-gray-200 transition-all">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br ${
-                    req.employe_nom === "Benali" ? "from-blue-500 to-indigo-600" :
-                    req.employe_nom === "Ouahbi" ? "from-emerald-500 to-teal-600" :
-                    "from-amber-500 to-red-600"
-                  }`}>
-                    {(req.employe_prenom?.[0] || "") + (req.employe_nom?.[0] || "")}
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br from-blue-500 to-indigo-600">
+                    {(req.employeeName?.[0] || "?")}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{req.employeeName || `${req.employe_prenom} ${req.employe_nom}`}</p>
-                    <p className="text-xs text-gray-500 truncate">{req.motif || (TYPE_LABELS[req.type] || req.type)}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">{req.employeeName || t('common.notAvailable')}</p>
+                    <p className="text-xs text-gray-500 truncate">{TYPE_LABELS[req.type] || req.type}</p>
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -519,12 +478,12 @@ function FinanceDashboard({ user, api, navigate }) {
 
 function SurveillantDashboard({ user, api, navigate }) {
   const { t } = useTranslation();
-  const [elevesStats, setElevesStats] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get("/dashboard/eleves-stats")
-      .then(r => setElevesStats(r.data))
+    api.get("/dashboard/school-life-stats")
+      .then(r => setStats(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [api]);
@@ -538,10 +497,42 @@ function SurveillantDashboard({ user, api, navigate }) {
         subtitle={t('dashboard.surveillanceSubtitle')}
       />
       <div className="p-6 space-y-6 -mt-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <StatCard icon={GraduationCap} color="amber" value={elevesStats?.totalEleves} label={t('school.students')} />
-          <StatCard icon={BookOpen} color="purple" value={elevesStats?.niveaux} label={t('school.levels')} />
-          <StatCard icon={AlertCircle} color="red" value={elevesStats?.totalAbsences} label={t('school.totalAbsences')} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard icon={GraduationCap} color="blue" value={stats?.totalEleves} label={t('school.students')} />
+          <StatCard icon={BookOpen} color="purple" value={stats?.niveaux} label={t('school.levels')} />
+          <StatCard icon={Clock} color="orange" value={stats?.absentsToday} label={t('dashboard.absentToday')} />
+          <StatCard icon={AlertCircle} color="red" value={stats?.alertes} label={t('dashboard.alertes')} />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm animate-slide-up">
+            <h2 className="font-bold text-gray-900 mb-4">{t('dashboard.absences')}</h2>
+            <div className="flex gap-4">
+              <div className="flex-1 bg-emerald-50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-emerald-700">{stats?.justifieesToday ?? 0}</p>
+                <p className="text-xs text-emerald-600 font-medium mt-1">{t('dashboard.justified')}</p>
+              </div>
+              <div className="flex-1 bg-red-50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-red-700">{stats?.injustifieesToday ?? 0}</p>
+                <p className="text-xs text-red-600 font-medium mt-1">{t('dashboard.unjustified')}</p>
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-gray-100 text-center">
+              <span className="text-xs text-gray-500">{t('school.totalAbsences')} : <strong className="text-gray-900">{stats?.totalAbsences ?? 0}</strong></span>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm animate-slide-up">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                <AlertCircle size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="font-bold text-gray-900">{t('dashboard.alerts')}</h2>
+                <p className="text-xs text-gray-500">{t('dashboard.alertThreshold')}</p>
+              </div>
+            </div>
+            <p className="text-3xl font-black text-red-600">{stats?.alertes ?? 0}</p>
+            <p className="text-xs text-gray-500 mt-1">{t('dashboard.studentsExceedThreshold')}</p>
+          </div>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm animate-slide-up">
           <h2 className="font-bold text-gray-900 mb-4">{t('common.quickActions')}</h2>

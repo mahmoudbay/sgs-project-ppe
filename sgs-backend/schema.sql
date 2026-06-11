@@ -34,7 +34,9 @@ CREATE TABLE eleves (
     niveau VARCHAR(50),
     date_naissance DATE,
     absences INTEGER DEFAULT 0,
-    absences_justifiees INTEGER DEFAULT 0
+    absences_justifiees INTEGER DEFAULT 0,
+    email_parent VARCHAR(150),
+    telephone_parent VARCHAR(20)
 );
 
 -- Human Resources Requests (Demandes RH)

@@ -2,6 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const pool = require('../db');
+const { sendAlertEmail } = require('../utils/email');
+const { mapColumns, fallbackMapping } = require('../utils/aiMapping');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads', 'absences')),
@@ -81,6 +83,231 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// --- Get niveaux with class/student counts ---
+router.get('/niveaux', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT niveau,
+        COUNT(DISTINCT classe)::int AS nb_classes,
+        COUNT(*)::int AS nb_eleves
+      FROM eleves
+      WHERE niveau IS NOT NULL
+      GROUP BY niveau
+      ORDER BY niveau
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Get classes for a niveau ---
+router.get('/classes', async (req, res) => {
+  try {
+    const { niveau } = req.query;
+    if (!niveau) return res.status(400).json({ error: 'niveau is required' });
+    const result = await pool.query(`
+      SELECT classe, COUNT(*)::int AS nb_eleves
+      FROM eleves
+      WHERE niveau = $1 AND classe IS NOT NULL
+      GROUP BY classe
+      ORDER BY classe
+    `, [niveau]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Get students by niveau + classe with class stats ---
+router.get('/by-classe', async (req, res) => {
+  try {
+    const { niveau, classe } = req.query;
+    if (!niveau || !classe) return res.status(400).json({ error: 'niveau and classe are required' });
+    const students = await pool.query(
+      'SELECT * FROM eleves WHERE niveau = $1 AND classe = $2 ORDER BY nom ASC',
+      [niveau, classe]
+    );
+    const stats = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total_eleves,
+        COALESCE(SUM(absences), 0)::int AS total_absences,
+        COALESCE(SUM(absences_justifiees), 0)::int AS total_justifiees,
+        COUNT(*) FILTER (WHERE absences >= 10)::int AS alert_count
+      FROM eleves
+      WHERE niveau = $1 AND classe = $2
+    `, [niveau, classe]);
+    res.json({ students: students.rows, stats: stats.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Global search across all students ---
+router.get('/search-global', async (req, res) => {
+  const { q } = req.query;
+  if (!q || q.trim().length < 1) return res.json([]);
+  try {
+    const result = await pool.query(
+      `SELECT id, nom, prenom, classe, niveau, absences, absences_justifiees, id_massar
+       FROM eleves
+       WHERE nom ILIKE $1 OR prenom ILIKE $1 OR id_massar ILIKE $1
+       ORDER BY nom ASC
+       LIMIT 15`,
+      [`%${q.trim()}%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Create a single student ---
+router.post('/', async (req, res) => {
+  const { id_massar, nom, prenom, classe, niveau, date_naissance, email_parent, telephone_parent } = req.body;
+  if (!nom || !prenom) {
+    return res.status(400).json({ error: 'Nom et prénom sont obligatoires' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO eleves (id_massar, nom, prenom, classe, niveau, date_naissance, email_parent, telephone_parent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (id_massar) DO NOTHING
+       RETURNING *`,
+      [id_massar || null, nom, prenom, classe || null, niveau || null, date_naissance || null, email_parent || null, telephone_parent || null]
+    );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'Ce code MASSAR existe déjà' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Update a student ---
+router.put('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { id_massar, nom, prenom, classe, niveau, date_naissance, email_parent, telephone_parent } = req.body;
+  if (!nom || !prenom) {
+    return res.status(400).json({ error: 'Nom et prénom sont obligatoires' });
+  }
+  try {
+    const existing = await pool.query('SELECT id FROM eleves WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Élève non trouvé' });
+    }
+    if (id_massar) {
+      const dup = await pool.query('SELECT id FROM eleves WHERE id_massar = $1 AND id != $2', [id_massar, id]);
+      if (dup.rows.length > 0) {
+        return res.status(409).json({ error: 'Ce code MASSAR est déjà attribué à un autre élève' });
+      }
+    }
+    const result = await pool.query(
+      `UPDATE eleves SET id_massar = $1, nom = $2, prenom = $3, classe = $4, niveau = $5, date_naissance = $6, email_parent = $7, telephone_parent = $8
+       WHERE id = $9 RETURNING *`,
+      [id_massar || null, nom, prenom, classe || null, niveau || null, date_naissance || null, email_parent || null, telephone_parent || null, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Send alert email to parent ---
+router.post('/:id/alert-email', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const eleve = await pool.query('SELECT * FROM eleves WHERE id = $1', [id]);
+    if (eleve.rows.length === 0) return res.status(404).json({ error: 'Élève non trouvé' });
+    const e = eleve.rows[0];
+    const result = await sendAlertEmail(e, e.absences);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Delete a student ---
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const existing = await pool.query('SELECT id FROM eleves WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Élève non trouvé' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM certificats WHERE eleve_id = $1', [id]);
+      await client.query('DELETE FROM dossiers WHERE eleve_id = $1', [id]);
+      await client.query('DELETE FROM eleves WHERE id = $1', [id]);
+      await client.query('COMMIT');
+      res.json({ success: true });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- AI column mapping for Excel import ---
+router.post('/import/ai-mapping', async (req, res) => {
+  const { headers } = req.body;
+  if (!Array.isArray(headers) || headers.length === 0) {
+    return res.status(400).json({ error: 'headers array is required' });
+  }
+  const aiResult = await mapColumns(headers);
+  if (aiResult) {
+    return res.json({ mapping: aiResult.mapping, unmapped: aiResult.unmapped, source: 'ai' });
+  }
+  const fallback = fallbackMapping(headers);
+  res.json({ mapping: fallback.mapping, unmapped: fallback.unmapped, source: 'fallback' });
+});
+
+// --- Import students from Excel ---
+router.post('/import', async (req, res) => {
+  const { students } = req.body;
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ error: 'students array is required' });
+  }
+  try {
+    let imported = 0;
+    let skipped = 0;
+    const errors = [];
+    for (const s of students) {
+      if (!s.nom || !s.prenom) {
+        errors.push({ row: imported + skipped + 1, reason: 'Nom ou prénom manquant', data: s });
+        skipped++;
+        continue;
+      }
+      try {
+        const result = await pool.query(
+          `INSERT INTO eleves (id_massar, nom, prenom, classe, niveau, date_naissance, email_parent, telephone_parent)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id_massar) DO NOTHING RETURNING id`,
+          [s.id_massar || null, s.nom, s.prenom, s.classe || null, s.niveau || null, s.date_naissance || null, s.email_parent || null, s.telephone_parent || null]
+        );
+        if (result.rows.length > 0) {
+          imported++;
+        } else {
+          skipped++;
+        }
+      } catch (err) {
+        errors.push({ row: imported + skipped + 1, reason: err.message, data: s });
+        skipped++;
+      }
+    }
+    res.json({ imported, skipped, errors });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/:id/absences', async (req, res) => {
   const { id } = req.params;
   const { absences, absences_justifiees } = req.body;
@@ -112,9 +339,10 @@ async function updateEleveCounters(eleve_id) {
 
 // --- Helper: check alert threshold and create notification ---
 async function checkAlertThreshold(eleve_id) {
-  const eleve = await pool.query('SELECT nom, prenom, absences FROM eleves WHERE id = $1', [eleve_id]);
+  const eleve = await pool.query('SELECT * FROM eleves WHERE id = $1', [eleve_id]);
   if (!eleve.rows.length) return;
-  const { nom, prenom, absences } = eleve.rows[0];
+  const e = eleve.rows[0];
+  const { nom, prenom, absences } = e;
   if (absences >= 10) {
     const adminUsers = await pool.query("SELECT id FROM users WHERE role IN ('direction', 'surveillant', 'admin')");
     for (const u of adminUsers.rows) {
@@ -123,6 +351,8 @@ async function checkAlertThreshold(eleve_id) {
         [u.id, `Alerte : ${prenom} ${nom} a dépassé ${absences}h d'absences`]
       );
     }
+    // Envoi email au parent si configuré
+    await sendAlertEmail(e, absences);
   }
 }
 
@@ -166,9 +396,10 @@ router.post('/absences/records', async (req, res) => {
       [eleve_id, date || new Date().toISOString().split('T')[0], justifie || false, motif || null, justificatif || null]
     );
     await updateEleveCounters(eleve_id);
-    await checkAlertThreshold(eleve_id);
+    try { await checkAlertThreshold(eleve_id); } catch (_) {}
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('Erreur POST /absences/records:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -187,7 +418,7 @@ router.post('/absences/records/batch', async (req, res) => {
       );
       inserted.push(r.rows[0]);
       await updateEleveCounters(id);
-      await checkAlertThreshold(id);
+      try { await checkAlertThreshold(id); } catch (_) {}
     }
     res.json(inserted);
   } catch (err) {
@@ -214,7 +445,7 @@ router.put('/absences/records/:id', async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     await updateEleveCounters(result.rows[0].eleve_id);
-    await checkAlertThreshold(result.rows[0].eleve_id);
+    try { await checkAlertThreshold(result.rows[0].eleve_id); } catch (_) {}
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

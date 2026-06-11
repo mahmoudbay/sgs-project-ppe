@@ -234,6 +234,7 @@ function ResultsManagement({ results, api, onRefresh, loading }) {
 }
 
 function MentionBar({ label, count, total, color, value }) {
+  const { t } = useTranslation();
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
     <div>
@@ -272,23 +273,20 @@ function CertificatesManagement({ api, user }) {
         nom: student.nom,
         prenom: student.prenom,
       };
-      await api.post("/certificats/generate", payload);
+      const res = await api.post("/certificats/generate", payload);
+      const numero = res.data.numero || `2025/2026/${Math.floor(Math.random() * 1000)}`;
 
       setCertData({
-        numero: `2025/2026/${Math.floor(Math.random() * 1000)}`,
+        numero,
         eleve: { ...student, classe: student.classe || student.niveau || "—" },
         dateEmission: new Date().toLocaleDateString("fr-FR"),
       });
 
-      setTimeout(() => {
-        window.print();
-        setCertData(null);
-      }, 500);
-
-      pushToast("success", t('documents.generatedSuccess') + " " + student.prenom + " " + student.nom);
+      setTimeout(() => window.print(), 500);
     } catch {
       pushToast("error", t('documents.generatedError'));
-    } finally { setIsGenerating(false); }
+      setIsGenerating(false);
+    }
   };
 
   const certColumns = [
@@ -413,7 +411,12 @@ function CertificatesManagement({ api, user }) {
       </div>
 
       {certData && (
-        <div className="hidden print:block fixed inset-0 z-[9999] bg-white text-black p-8 font-serif" dir="rtl">
+        <div className="fixed inset-0 z-50 bg-white text-black p-8 font-serif overflow-y-auto" dir="rtl"
+             style={{ width: '794px', margin: '0 auto' }}>
+          <button onClick={() => { setCertData(null); setIsGenerating(false); }}
+            className="fixed top-4 left-4 z-[60] w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white text-lg font-bold hover:bg-red-600 shadow-lg">
+            ×
+          </button>
 
           <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-6">
             <div className="text-right text-sm leading-relaxed font-bold">
@@ -428,7 +431,7 @@ function CertificatesManagement({ api, user }) {
           </div>
 
           <div className="flex justify-between text-sm font-bold mb-8">
-            <div className="w-24 h-32 border-2 border-dashed border-gray-400 flex items-center justify-center text-gray-400 text-xs">
+            <div className="w-24 h-32 border-2 border-dashed flex items-center justify-center text-xs" style={{ color: '#9ca3af', borderColor: '#9ca3af' }}>
               صورة (Photo)
             </div>
             <div className="text-left leading-loose">
@@ -439,7 +442,7 @@ function CertificatesManagement({ api, user }) {
           </div>
 
           <div className="flex items-center justify-center mb-10">
-            <div className="border-2 border-black px-10 py-3 text-2xl font-black flex items-center gap-4 bg-gray-100">
+            <div className="border-2 border-black px-10 py-3 text-2xl font-black flex items-center gap-4" style={{ backgroundColor: '#f3f4f6' }}>
               <span>شهادة مدرسية رقم : {certData.numero}</span>
               <span className="text-xs border border-black p-1 bg-white mr-4">مسار MASSAR</span>
             </div>
@@ -449,32 +452,32 @@ function CertificatesManagement({ api, user }) {
             <p className="mb-6 font-bold">يشهد الموقع (ة) أسفله</p>
 
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <p>أن التلميذ (ة) الاسم و النسب : <span className="font-bold border-b border-dashed border-gray-400 inline-block px-4">{certData.eleve.nom} {certData.eleve.prenom}</span></p>
-              <p dir="ltr" className="text-left"><span className="font-bold border-b border-dashed border-gray-400 inline-block px-4">{certData.eleve.nom.toUpperCase()} {certData.eleve.prenom.toUpperCase()}</span> : Nom et Prénom</p>
+              <p>أن التلميذ (ة) الاسم و النسب : <span className="font-bold border-b border-dashed inline-block px-4" style={{ borderColor: '#9ca3af' }}>{certData.eleve.nom} {certData.eleve.prenom}</span></p>
+              <p dir="ltr" className="text-left"><span className="font-bold border-b border-dashed inline-block px-4" style={{ borderColor: '#9ca3af' }}>{certData.eleve.nom.toUpperCase()} {certData.eleve.prenom.toUpperCase()}</span> : Nom et Prénom</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <p>المولود (ة) في : <span className="font-bold border-b border-dashed border-gray-400 inline-block px-4">{certData.eleve.date_naissance ? new Date(certData.eleve.date_naissance).toLocaleDateString("fr-FR") : "................................"}</span></p>
-              <p>بـ : <span className="font-bold border-b border-dashed border-gray-400 inline-block px-4">مراكش</span></p>
+              <p>المولود (ة) في : <span className="font-bold border-b border-dashed inline-block px-4" style={{ borderColor: '#9ca3af' }}>{certData.eleve.date_naissance ? new Date(certData.eleve.date_naissance).toLocaleDateString("fr-FR") : "................................"}</span></p>
+              <p>بـ : <span className="font-bold border-b border-dashed inline-block px-4" style={{ borderColor: '#9ca3af' }}>مراكش</span></p>
             </div>
 
-            <p className="mb-6">رقم التلميذ (ة) (مسار) : <span className="font-bold border-b border-dashed border-gray-400 inline-block px-4 tracking-widest">{certData.eleve.id_massar}</span></p>
+            <p className="mb-6">رقم التلميذ (ة) (مسار) : <span className="font-bold border-b border-dashed inline-block px-4 tracking-widest" style={{ borderColor: '#9ca3af' }}>{certData.eleve.id_massar}</span></p>
             <p className="mb-6">كان / يتابع دراسته(ها) بهذه المؤسسة</p>
-            <p className="mb-8">و لم يغادر المؤسسة و يتابع دراسته بالمستوى : <span className="font-bold border-b border-dashed border-gray-400 inline-block px-4"> (2025/2026) - {certData.eleve.classe}</span></p>
+            <p className="mb-8">و لم يغادر المؤسسة و يتابع دراسته بالمستوى : <span className="font-bold border-b border-dashed inline-block px-4" style={{ borderColor: '#9ca3af' }}> (2025/2026) - {certData.eleve.classe}</span></p>
             <p className="text-lg">ملاحظات : <span className="italic">سلمت له (ها) هذه الشهادة من برنامج "مسار" لغرض إداري.</span></p>
           </div>
 
           <div className="flex justify-between items-end mt-16 px-10">
             <div className="text-center font-bold text-lg">
               <p className="mb-8">خاتم و توقيع رئيس المؤسسة</p>
-              <div className="w-32 h-32 border border-gray-200 rounded-full mx-auto flex items-center justify-center opacity-50">
+              <div className="w-32 h-32 border rounded-full mx-auto flex items-center justify-center opacity-50" style={{ borderColor: '#e5e7eb' }}>
                 ختم الإدارة
               </div>
             </div>
             <div className="text-center">
               <p className="text-xl font-bold mb-4">حرر بـ : مراكش في : {certData.dateEmission}</p>
               <p className="font-bold text-lg mb-8">خاتم و توقيع الحارس العام</p>
-              <div className="w-32 h-32 border border-gray-200 rounded-full mx-auto flex items-center justify-center opacity-50">
+              <div className="w-32 h-32 border rounded-full mx-auto flex items-center justify-center opacity-50" style={{ borderColor: '#e5e7eb' }}>
                 ختم الحارس العام
               </div>
             </div>

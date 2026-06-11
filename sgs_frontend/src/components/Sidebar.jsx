@@ -59,7 +59,7 @@ export default function Sidebar({ isOpen, onToggle, user, hasPermission }) {
             </div>
             <div>
               <h2 className="text-base font-bold leading-tight">SGS</h2>
-              <p className="text-[10px] text-gray-400 tracking-wide">Collège Ibn Battouta</p>
+              <p className="text-[10px] text-gray-400 tracking-wide">Collège Borj Azzaitoune</p>
             </div>
             <button onClick={onToggle} className="lg:hidden ml-auto p-1 text-gray-400 hover:text-white transition-colors">
               <X size={20} />
