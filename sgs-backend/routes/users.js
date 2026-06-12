@@ -112,7 +112,7 @@ router.get('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['nom','prenom','email','role','actif','telephone','adresse','date_naissance','lieu_naissance','cin','cnss','poste','matricule','diplome','specialite','sexe'];
+    const allowed = ['nom','prenom','email','role','actif','telephone','adresse','date_naissance','lieu_naissance','cin','cnss','poste','matricule','diplome','specialite','sexe','subject'];
     const fields = [];
     const params = [];
     let idx = 1;
@@ -151,6 +151,59 @@ router.delete('/:id', async (req, res) => {
     const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
     res.json({ message: 'Utilisateur supprimé' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Teacher assignments ---
+
+router.get('/:id/assignments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'SELECT id, subject, niveau, classe FROM teacher_assignments WHERE user_id = $1 ORDER BY niveau, classe',
+      [id]
+    );
+    const userResult = await pool.query('SELECT subject FROM users WHERE id = $1', [id]);
+    res.json({ assignments: result.rows, subject: userResult.rows[0]?.subject || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/assignments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subject, niveau, classe } = req.body;
+    if (!subject || !niveau || !classe) {
+      return res.status(400).json({ error: 'Champs requis: subject, niveau, classe' });
+    }
+    const result = await pool.query(
+      `INSERT INTO teacher_assignments (user_id, subject, niveau, classe)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, subject, niveau, classe]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Cette assignation existe déjà' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:id/assignments/:assignId', async (req, res) => {
+  try {
+    const { id, assignId } = req.params;
+    const result = await pool.query(
+      'DELETE FROM teacher_assignments WHERE id = $1 AND user_id = $2 RETURNING id',
+      [assignId, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignation non trouvée' });
+    }
+    res.json({ success: true, id: parseInt(assignId) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

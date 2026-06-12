@@ -114,8 +114,10 @@ CREATE TABLE resultats (
     id SERIAL PRIMARY KEY,
     massar_id VARCHAR(50),
     eleve_name VARCHAR(255),
+    eleve_id INTEGER REFERENCES eleves(id) ON DELETE SET NULL,
     niveau VARCHAR(10),
-    trimestre INTEGER,
+    classe VARCHAR(50),
+    semestre INTEGER,
     maths DECIMAL(4, 2),
     physique DECIMAL(4, 2),
     svt DECIMAL(4, 2),
@@ -130,4 +132,47 @@ CREATE TABLE resultats (
     art DECIMAL(4, 2),
     moyenne_generale DECIMAL(4, 2),
     date_import TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Teacher subject (stored on users)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subject VARCHAR(50);
+
+-- Teacher class assignments
+CREATE TABLE IF NOT EXISTS teacher_assignments (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    subject VARCHAR(50) NOT NULL,
+    niveau VARCHAR(10) NOT NULL,
+    classe VARCHAR(50) NOT NULL,
+    UNIQUE(user_id, niveau, classe)
+);
+
+-- Courses published by teachers
+CREATE TABLE IF NOT EXISTS courses (
+    id SERIAL PRIMARY KEY,
+    teacher_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    subject VARCHAR(50) NOT NULL,
+    niveau VARCHAR(10) NOT NULL,
+    classe VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    content TEXT,
+    file_url VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Exercises published by teachers
+CREATE TABLE IF NOT EXISTS exercises (
+    id SERIAL PRIMARY KEY,
+    teacher_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    subject VARCHAR(50) NOT NULL,
+    niveau VARCHAR(10) NOT NULL,
+    classe VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    content TEXT,
+    file_url VARCHAR(255),
+    due_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

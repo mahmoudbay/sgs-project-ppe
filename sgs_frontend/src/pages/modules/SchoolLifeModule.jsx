@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { Routes, Route, Link, useLocation, useParams, useNavigate, Navigate } from "react-router-dom";
-import { Loader2, RefreshCw, Search, Save, Download, Upload, X, Eye, History, FileText, BarChart3, Users, Calendar, CheckCircle, AlertTriangle, Plus, Pencil, Trash2, Mail } from "lucide-react";
+import { Loader2, RefreshCw, Search, Save, Download, Upload, X, Eye, History, FileText, BarChart3, Users, Calendar, CheckCircle, AlertTriangle, Plus, Pencil, Trash2, Mail, UserPlus } from "lucide-react";
 import * as XLSX from "xlsx";
 import { pushToast } from "../../components/Notifications";
 
@@ -904,12 +904,25 @@ function ClasseDashboard({ api }) {
   );
 }
 
+const SUBJECT_LABELS = {
+  maths: "Mathématiques", physique: "Physique-Chimie", svt: "SVT",
+  francais: "Français", arabe: "Arabe", anglais: "Anglais",
+  histoire_geo: "Histoire-Géo", education_islamique: "Éduc. Islamique",
+  informatique: "Informatique", eps: "EPS", musique: "Musique", art: "Arts"
+};
+
 // --- Student Dossier Modal ---
 function StudentDossierModal({ api, student, onClose }) {
   const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState("info");
   const [records, setRecords] = useState([]);
+  const [grades, setGrades] = useState([]);
+  const [gradeSemestre, setGradeSemestre] = useState("1");
   const [loading, setLoading] = useState(false);
+  const [loadingGrades, setLoadingGrades] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [showCreateAccount, setShowCreateAccount] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
 
   useEffect(() => {
     if (!student || typeof student.id !== 'number') return;
@@ -919,6 +932,15 @@ function StudentDossierModal({ api, student, onClose }) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [student, api]);
+
+  useEffect(() => {
+    if (!student || typeof student.id !== 'number' || activeTab !== "notes") return;
+    setLoadingGrades(true);
+    api.get(`/eleves/${student.id}/resultats`, { params: { semestre: gradeSemestre } })
+      .then(r => setGrades(r.data))
+      .catch(() => {})
+      .finally(() => setLoadingGrades(false));
+  }, [student, api, activeTab, gradeSemestre]);
 
   if (!student) return null;
 
@@ -932,6 +954,11 @@ function StudentDossierModal({ api, student, onClose }) {
   ];
   const colorIdx = (student.id || 1) % avatarColors.length;
 
+  const tabs = [
+    { key: "info", label: t('school.absences'), icon: Calendar },
+    { key: "notes", label: t('school.notes'), icon: BarChart3 },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col animate-scale-in" onClick={e => e.stopPropagation()}>
@@ -942,7 +969,7 @@ function StudentDossierModal({ api, student, onClose }) {
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate">{student.prenom} {student.nom}</h2>
-            <p className="text-sm text-gray-500 truncate">{t('school.massarCode')}: {student.id_massar || 'â€”'} Â· {student.niveau || 'â€”'}</p>
+            <p className="text-sm text-gray-500 truncate">{t('school.massarCode')}: {student.id_massar || '—'} · {student.niveau || '—'} · {student.classe || '—'}</p>
           </div>
           <div className="flex items-center gap-2">
             {isAlert ? (
@@ -963,99 +990,208 @@ function StudentDossierModal({ api, student, onClose }) {
             }} disabled={sendingEmail} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title={t('school.sendAlertEmail')}>
               {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
             </button>
+            {!student.user_id && (
+              <button onClick={() => setShowCreateAccount(true)}
+                className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition" title={t('school.createAccount')}>
+                <UserPlus size={18} />
+              </button>
+            )}
             <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
               <X size={20} />
             </button>
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-gray-100 px-5">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === tab.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}>
+                <Icon size={16} /> {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="overflow-y-auto flex-1 p-5">
-          {/* Info cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.classe')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{student.classe || 'â€”'}</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.niveau')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{student.niveau || 'â€”'}</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.dateNaissance')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">
-                {student.date_naissance ? new Date(student.date_naissance).toLocaleDateString("fr-FR") : 'â€”'}
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.totalAbs')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{student.absences || 0}h</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.emailParent')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5 truncate">{student.email_parent || 'â€”'}</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.telephoneParent')}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{student.telephone_parent || 'â€”'}</p>
-            </div>
-          </div>
-
-          {/* Absence stats bar */}
-          <div className="bg-white border border-gray-100 rounded-xl p-4 mb-5">
-            <h3 className="text-sm font-bold text-gray-900 mb-3">{t('school.absencesStats')}</h3>
-            <div className="flex items-center gap-4 mb-2">
-              <div className="flex-1">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>{t('school.justifiees')}</span>
-                  <span className="font-bold text-emerald-600">{justified}h</span>
+          {activeTab === "info" && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.classe')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">{student.classe || '—'}</p>
                 </div>
-                <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(student.absences || 0) > 0 ? (justified / student.absences) * 100 : 0}%` }} />
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.niveau')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">{student.niveau || '—'}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.dateNaissance')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">
+                    {student.date_naissance ? new Date(student.date_naissance).toLocaleDateString("fr-FR") : '—'}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.totalAbs')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">{student.absences || 0}h</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.emailParent')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5 truncate">{student.email_parent || '—'}</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase">{t('school.telephoneParent')}</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">{student.telephone_parent || '—'}</p>
                 </div>
               </div>
-              <div className="flex-1">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>{t('school.injustifiees')}</span>
-                  <span className="font-bold text-red-600">{unjustified}h</span>
-                </div>
-                <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
-                  <div className="h-full rounded-full bg-red-500" style={{ width: `${(student.absences || 0) > 0 ? (unjustified / student.absences) * 100 : 0}%` }} />
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              {student.absences > 0
-                ? `${Math.round((justified / student.absences) * 100)}% ${t('school.justified').toLowerCase()}, ${Math.round((unjustified / student.absences) * 100)}% ${t('school.unjustified').toLowerCase()}`
-                : t('school.noAbsences')}
-            </p>
-          </div>
 
-          {/* Absence history */}
-          <h3 className="text-sm font-bold text-gray-900 mb-3">{t('school.absenceHistory')}</h3>
-          {loading ? (
-            <div className="text-center py-8"><Loader2 className="animate-spin text-blue-500 mx-auto" size={24} /></div>
-          ) : records.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 font-medium">{t('school.noHistory')}</div>
-          ) : (
-            <div className="space-y-2">
-              {records.map(r => (
-                <div key={r.id} className={`flex items-center gap-3 p-3 rounded-xl border ${r.justifie ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${r.justifie ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
-                    {r.justifie ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+              <div className="bg-white border border-gray-100 rounded-xl p-4 mb-5">
+                <h3 className="text-sm font-bold text-gray-900 mb-3">{t('school.absencesStats')}</h3>
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>{t('school.justifiees')}</span>
+                      <span className="font-bold text-emerald-600">{justified}h</span>
+                    </div>
+                    <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(student.absences || 0) > 0 ? (justified / student.absences) * 100 : 0}%` }} />
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900">{new Date(r.date).toLocaleDateString("fr-FR", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    <p className="text-xs text-gray-500">{r.justifie ? t('school.justifieLabel') : t('school.unjustified')}{r.motif ? ` â€” ${r.motif}` : ''}</p>
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>{t('school.injustifiees')}</span>
+                      <span className="font-bold text-red-600">{unjustified}h</span>
+                    </div>
+                    <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-full rounded-full bg-red-500" style={{ width: `${(student.absences || 0) > 0 ? (unjustified / student.absences) * 100 : 0}%` }} />
+                    </div>
                   </div>
-                  {r.justificatif && (
-                    <span className="text-xs text-blue-600 flex items-center gap-1"><FileText size={12} /> {t('school.justificatif')}</span>
-                  )}
                 </div>
-              ))}
+                <p className="text-xs text-gray-400 mt-1">
+                  {student.absences > 0
+                    ? `${Math.round((justified / student.absences) * 100)}% ${t('school.justified').toLowerCase()}, ${Math.round((unjustified / student.absences) * 100)}% ${t('school.unjustified').toLowerCase()}`
+                    : t('school.noAbsences')}
+                </p>
+              </div>
+
+              <h3 className="text-sm font-bold text-gray-900 mb-3">{t('school.absenceHistory')}</h3>
+              {loading ? (
+                <div className="text-center py-8"><Loader2 className="animate-spin text-blue-500 mx-auto" size={24} /></div>
+              ) : records.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-medium">{t('school.noHistory')}</div>
+              ) : (
+                <div className="space-y-2">
+                  {records.map(r => (
+                    <div key={r.id} className={`flex items-center gap-3 p-3 rounded-xl border ${r.justifie ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${r.justifie ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                        {r.justifie ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{new Date(r.date).toLocaleDateString("fr-FR", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        <p className="text-xs text-gray-500">{r.justifie ? t('school.justifieLabel') : t('school.unjustified')}{r.motif ? ` — ${r.motif}` : ''}</p>
+                      </div>
+                      {r.justificatif && (
+                        <span className="text-xs text-blue-600 flex items-center gap-1"><FileText size={12} /> {t('school.justificatif')}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "notes" && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-gray-900">{t('school.notes')}</h3>
+                <select value={gradeSemestre} onChange={e => setGradeSemestre(e.target.value)}
+                  className="border border-gray-200 p-2 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                  <option value="1">{t('documents.semester1')}</option>
+                  <option value="2">{t('documents.semester2')}</option>
+                </select>
+              </div>
+
+              {loadingGrades ? (
+                <div className="text-center py-8"><Loader2 className="animate-spin text-blue-500 mx-auto" size={24} /></div>
+              ) : grades.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-medium">{t('school.noNotes')}</div>
+              ) : (
+                <div className="space-y-3">
+                  {grades.map(grade => (
+                    <div key={grade.id} className="bg-white border border-gray-100 rounded-xl p-4">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-3">{t('documents.semester')} {grade.semestre}</p>
+                      <div className="space-y-2">
+                        {Object.entries(SUBJECT_LABELS).map(([key, label]) => {
+                          const val = grade[key];
+                          return (
+                            <div key={key} className="flex items-center justify-between py-1">
+                              <span className="text-sm text-gray-700">{label}</span>
+                              <span className={`text-sm font-bold ${val >= 10 ? "text-emerald-600" : val > 0 ? "text-red-600" : "text-gray-400"}`}>
+                                {val ? val.toFixed(2) : "—"} /20
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                        <span className="text-sm font-bold text-gray-900">{t('documents.avg')}</span>
+                        <span className={`text-lg font-black ${grade.moyenne_generale >= 10 ? "text-emerald-600" : "text-red-600"}`}>
+                          {grade.moyenne_generale?.toFixed(2) ?? "—"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {showCreateAccount && (
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl" onClick={() => setShowCreateAccount(false)}>
+          <div className="bg-white rounded-2xl p-5 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-gray-900 mb-1">{t('school.createAccount')}</h3>
+            <p className="text-xs text-gray-500 mb-3">{student.nom} {student.prenom} · {student.id_massar}</p>
+            <div className="bg-gray-50 rounded-xl p-3 mb-4 space-y-1">
+              <p className="text-xs text-gray-500">Email :</p>
+              <p className="text-sm font-mono text-gray-900 break-all">
+                {(() => {
+                  const n = str => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                  return n(student.prenom) + n(student.nom) + '@borjazzaitoune.ma';
+                })()}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">Mot de passe :</p>
+              <p className="text-sm font-mono text-gray-900">{student.id_massar || '—'}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setShowCreateAccount(false); }}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50">
+                {t('common.cancel')}
+              </button>
+              <button onClick={async () => {
+                setCreatingAccount(true);
+                try {
+                  const res = await api.post('/auth/signup', {
+                    role: 'eleve', eleve_id: student.id
+                  });
+                  pushToast("success", t('school.accountCreated'));
+                  setShowCreateAccount(false);
+                } catch (err) {
+                  pushToast("error", err.response?.data?.error || t('errors.generic'));
+                } finally { setCreatingAccount(false); }
+              }} disabled={creatingAccount}
+                className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                {creatingAccount ? <Loader2 size={14} className="animate-spin mx-auto" /> : t('school.createAccount')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

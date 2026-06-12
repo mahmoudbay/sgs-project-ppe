@@ -563,4 +563,54 @@ router.get('/absences/export', async (req, res) => {
   }
 });
 
+router.get('/:id/resultats', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const semestre = req.query.semestre || '';
+    let where = 'WHERE r.eleve_id = $1';
+    const params = [id];
+    if (semestre) { where += ' AND r.semestre = $2'; params.push(parseInt(semestre)); }
+    const result = await pool.query(
+      `SELECT r.* FROM resultats r ${where} ORDER BY r.semestre ASC`, params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Search students by name/massar ---
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json([]);
+    const result = await pool.query(
+      `SELECT id, id_massar, nom, prenom, niveau, classe, user_id
+       FROM eleves
+       WHERE nom ILIKE $1 OR prenom ILIKE $1 OR id_massar ILIKE $1
+       ORDER BY nom ASC LIMIT 20`,
+      [`%${q}%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Link a student to a user account ---
+router.put('/:id/link-user', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.body;
+    const result = await pool.query(
+      'UPDATE eleves SET user_id = $1 WHERE id = $2 RETURNING *',
+      [user_id, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Élève non trouvé' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { User, Camera, Save, Loader2, Mail, Phone, MapPin, Calendar, Briefcase, GraduationCap, IdCard, FileText, Globe, Lock, Eye, EyeOff } from "lucide-react";
 import { pushToast } from "../components/Notifications";
 
+const PROFESSIONAL_ROLES = ['admin', 'direction', 'employe', 'service_financier'];
+
 export default function Profile({ api, user, setUser }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -27,8 +29,9 @@ export default function Profile({ api, user, setUser }) {
     try {
       const res = await api.put('/users/profile', profile);
       setProfile(res.data);
-      localStorage.setItem('user', JSON.stringify(res.data));
-      setUser(res.data);
+      const merged = { ...user, ...res.data };
+      localStorage.setItem('user', JSON.stringify(merged));
+      setUser(merged);
       pushToast("success", t('profile.savedSuccess'));
     } catch (err) {
       pushToast("error", err.response?.data?.error || t('profile.saveError'));
@@ -136,22 +139,24 @@ export default function Profile({ api, user, setUser }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Briefcase size={18} className="text-blue-600" /> {t('profile.professionalInfo')}</h2>
-            <div className="space-y-4">
-              <Input label={t('profile.poste')} icon={Briefcase} field="poste" />
-              <Input label={t('profile.matricule')} icon={IdCard} field="matricule" />
-              <div className="grid grid-cols-2 gap-4">
-                <Input label={t('profile.diplome')} icon={GraduationCap} field="diplome" />
-                <Input label={t('profile.specialite')} icon={FileText} field="specialite" />
+          {PROFESSIONAL_ROLES.includes(profile?.role) && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Briefcase size={18} className="text-blue-600" /> {t('profile.professionalInfo')}</h2>
+              <div className="space-y-4">
+                <Input label={t('profile.poste')} icon={Briefcase} field="poste" />
+                <Input label={t('profile.matricule')} icon={IdCard} field="matricule" />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label={t('profile.diplome')} icon={GraduationCap} field="diplome" />
+                  <Input label={t('profile.specialite')} icon={FileText} field="specialite" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label={t('profile.cnss')} icon={IdCard} field="cnss" />
+                  <Input label={t('profile.dateEmbauche')} icon={Calendar} field="date_embauche" type="date" />
+                </div>
+                <Input label={t('profile.soldeConge')} icon={Calendar} field="solde_conge" type="number" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label={t('profile.cnss')} icon={IdCard} field="cnss" />
-                <Input label={t('profile.dateEmbauche')} icon={Calendar} field="date_embauche" type="date" />
-              </div>
-              <Input label={t('profile.soldeConge')} icon={Calendar} field="solde_conge" type="number" />
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3">

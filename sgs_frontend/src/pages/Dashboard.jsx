@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Users, DollarSign, BookOpen, FileText, AlertCircle,
@@ -553,5 +553,6 @@ export default function Dashboard({ user, api, hasPermission }) {
   if (role === "direction") return <DirectionDashboard user={user} api={api} navigate={navigate} />;
   if (role === "service_financier") return <FinanceDashboard user={user} api={api} navigate={navigate} />;
   if (role === "surveillant_general") return <SurveillantDashboard user={user} api={api} navigate={navigate} />;
+  if (role === "eleve") return <Navigate to="/student" replace />;
   return <EmployeeDashboard user={user} api={api} navigate={navigate} />;
 }

@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "i18next";
-import { LogOut, User, Bell, Search, X, Menu, CheckCheck } from "lucide-react";
+import { LogOut, User, Bell, Search, X, Menu, CheckCheck, MessageCircle } from "lucide-react";
 import LanguageSwitcher from "./LanguageSwitcher";
 
-export default function Navbar({ user, api, onLogout, notifications, unreadCount: initialUnread = 0, onSearchToggle, onMenuToggle, onNotificationsUpdate }) {
+export default function Navbar({ user, api, onLogout, notifications, unreadCount: initialUnread = 0, onSearchToggle, onMenuToggle, onNotificationsUpdate, chatUnread = 0 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -142,6 +142,18 @@ export default function Navbar({ user, api, onLogout, notifications, unreadCount
               </div>
             )}
           </div>
+
+          {(user?.dbRole === 'eleve' || user?.dbRole === 'enseignant') && (
+            <button onClick={() => window.dispatchEvent(new CustomEvent('toggle-chat'))}
+              className="relative p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title={t('chat.title')}>
+              <MessageCircle size={20} />
+              {chatUnread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow">
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+            </button>
+          )}
 
           <div className="relative" ref={menuRef}>
             <button

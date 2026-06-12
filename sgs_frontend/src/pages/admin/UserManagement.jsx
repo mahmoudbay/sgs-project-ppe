@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Users, Shield, UserCog, Search, Filter, MoreHorizontal, Edit3, Trash2, ToggleLeft, ToggleRight, X, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Plus, Users, Shield, UserCog, Search, Filter, MoreHorizontal, Edit3, Trash2, ToggleLeft, ToggleRight, X, Mail, Lock, Eye, EyeOff, GraduationCap, Link } from "lucide-react";
 import { DataTable, StatusBadge, QuickActionButton } from "../../components/ui/DataTable";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { pushToast } from "../../components/Notifications";
@@ -11,10 +11,12 @@ const ROLES = [
   { value: "employe", labelKey: "users.employee", color: "bg-blue-100 text-blue-800" },
   { value: "service_financier", labelKey: "users.finance", color: "bg-cyan-100 text-cyan-800" },
   { value: "surveillant_general", labelKey: "users.supervisor", color: "bg-amber-100 text-amber-800" },
+  { value: "enseignant", labelKey: "users.teacher", color: "bg-indigo-100 text-indigo-800" },
+  { value: "eleve", labelKey: "users.eleve", color: "bg-teal-100 text-teal-800" },
 ];
 
 const ROLE_MAP = Object.fromEntries(ROLES.map(r => [r.value, r]));
-const INITIAL_FORM = { nom: "", prenom: "", email: "", password: "", role: "employe", actif: true };
+const INITIAL_FORM = { nom: "", prenom: "", email: "", password: "", role: "employe", actif: true, subject: "" };
 
 export default function UserManagement({ api }) {
   const { t } = useTranslation();
@@ -27,6 +29,10 @@ export default function UserManagement({ api }) {
   const [showPassword, setShowPassword] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [roleFilter, setRoleFilter] = useState("all");
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assigningUser, setAssigningUser] = useState(null);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkingUser, setLinkingUser] = useState(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -50,7 +56,7 @@ export default function UserManagement({ api }) {
 
   const openEdit = (u) => {
     setEditingUser(u);
-    setFormData({ nom: u.nom, prenom: u.prenom || "", email: u.email, password: "", role: u.role, actif: u.actif !== false });
+    setFormData({ nom: u.nom, prenom: u.prenom || "", email: u.email, password: "", role: u.role, actif: u.actif !== false, subject: u.subject || "" });
     setShowForm(true);
   };
 
@@ -67,7 +73,7 @@ export default function UserManagement({ api }) {
     setSaving(true);
     try {
       if (editingUser) {
-        const payload = { nom: formData.nom, prenom: formData.prenom, email: formData.email, role: formData.role, actif: formData.actif };
+        const payload = { nom: formData.nom, prenom: formData.prenom, email: formData.email, role: formData.role, actif: formData.actif, subject: formData.subject };
         if (formData.password) payload.password = formData.password;
         await api.put(`/users/${editingUser.id}`, payload);
         pushToast("success", t("users.modifiedSuccess"));
@@ -134,9 +140,25 @@ export default function UserManagement({ api }) {
 
   const filteredUsers = roleFilter === "all" ? users : users.filter(u => u.role === roleFilter);
 
+  const openAssignModal = (u) => {
+    setAssigningUser(u);
+    setShowAssignModal(true);
+  };
+
+  const openLinkModal = (u) => {
+    setLinkingUser(u);
+    setShowLinkModal(true);
+  };
+
   const actions = (u) => (
     <>
       <QuickActionButton icon={Edit3} label={t("users.edit")} onClick={() => openEdit(u)} color="blue" />
+      {u.role === "enseignant" && (
+        <QuickActionButton icon={GraduationCap} label={t("users.assignAction")} onClick={() => openAssignModal(u)} color="indigo" />
+      )}
+      {u.role === "eleve" && (
+        <QuickActionButton icon={Link} label={t("users.linkStudent")} onClick={() => openLinkModal(u)} color="teal" />
+      )}
       <QuickActionButton icon={u.actif ? ToggleRight : ToggleLeft} label={t(u.actif ? "users.disable" : "users.enable")} onClick={() => toggleStatus(u)} color={u.actif ? "amber" : "green"} />
       <QuickActionButton icon={Trash2} label={t("users.delete")} onClick={() => setConfirmDelete(u)} color="red" />
     </>
@@ -219,6 +241,14 @@ export default function UserManagement({ api }) {
                   {ROLES.map(r => <option key={r.value} value={r.value}>{t(r.labelKey)}</option>)}
                 </select>
               </div>
+              {formData.role === "enseignant" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">{t("users.subject")}</label>
+                  <input type="text" value={formData.subject} onChange={(e) => setFormData({...formData, subject: e.target.value})}
+                    placeholder={t("users.subjectPlaceholder")}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100 outline-none transition-all" />
+                </div>
+              )}
               <button type="submit" disabled={saving}
                 className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold text-sm hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                 {saving ? t("users.saving") : (editingUser ? t("users.modifyUserBtn") : t("users.createUserBtn"))}
@@ -268,6 +298,231 @@ export default function UserManagement({ api }) {
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {showAssignModal && assigningUser && (
+        <AssignModal
+          api={api}
+          user={assigningUser}
+          t={t}
+          onClose={() => { setShowAssignModal(false); setAssigningUser(null); }}
+        />
+      )}
+
+      {showLinkModal && linkingUser && (
+        <LinkStudentModal
+          api={api}
+          user={linkingUser}
+          t={t}
+          onClose={() => { setShowLinkModal(false); setLinkingUser(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AssignModal({ api, user, t, onClose }) {
+  const [assignments, setAssignments] = useState([]);
+  const [subject, setSubject] = useState(user.subject || "");
+  const [niveaux, setNiveaux] = useState([]);
+  const [niveau, setNiveau] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [classe, setClasse] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.get(`/users/${user.id}/assignments`).then(res => {
+      setAssignments(res.data.assignments || []);
+      if (!subject && res.data.subject) setSubject(res.data.subject);
+    }).catch(() => {});
+    api.get("/eleves/niveaux").then(res => setNiveaux(res.data || [])).catch(() => {});
+  }, [user.id]);
+
+  useEffect(() => {
+    if (!niveau) { setClasses([]); setClasse(""); return; }
+    api.get("/eleves/classes", { params: { niveau } })
+      .then(res => setClasses(res.data || []))
+      .catch(() => setClasses([]));
+  }, [niveau, api]);
+
+  const handleAdd = async () => {
+    if (!subject || !niveau || !classe) return;
+    try {
+      const res = await api.post(`/users/${user.id}/assignments`, { subject, niveau, classe });
+      setAssignments(prev => [...prev, res.data]);
+      pushToast("success", t("users.assignmentAdded"));
+    } catch (err) {
+      pushToast("error", err.response?.data?.error || t("users.error"));
+    }
+  };
+
+  const handleDelete = async (assignId) => {
+    try {
+      await api.delete(`/users/${user.id}/assignments/${assignId}`);
+      setAssignments(prev => prev.filter(a => a.id !== assignId));
+      pushToast("success", t("users.assignmentDeleted"));
+    } catch (err) {
+      pushToast("error", err.response?.data?.error || t("users.error"));
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <GraduationCap size={20} className="text-indigo-600" />
+            <h2 className="text-lg font-bold text-gray-900">{t("users.assignTitle")}</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+        </div>
+
+        <p className="text-sm text-gray-600 mb-4">
+          {user.prenom} {user.nom}
+        </p>
+
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">{t("users.currentAssignments")}</h3>
+          {assignments.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">{t("users.noAssignments")}</p>
+          ) : (
+            <div className="space-y-2">
+              {assignments.map(a => (
+                <div key={a.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded">{a.niveau}</span>
+                    <span className="text-sm font-medium text-gray-700">{a.classe}</span>
+                    <span className="text-xs text-gray-400">— {a.subject}</span>
+                  </div>
+                  <button onClick={() => handleDelete(a.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-200 pt-5">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">{t("users.addAssignment")}</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t("users.subject")}</label>
+              <input type="text" value={subject} onChange={e => setSubject(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t("users.niveau")}</label>
+              <select value={niveau} onChange={e => setNiveau(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="">--</option>
+                {niveaux.map(n => <option key={n.niveau} value={n.niveau}>{n.niveau}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t("users.classe")}</label>
+              <select value={classe} onChange={e => setClasse(e.target.value)} disabled={!niveau}
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50">
+                <option value="">--</option>
+                {classes.map(c => <option key={c.classe} value={c.classe}>{c.classe}</option>)}
+              </select>
+            </div>
+            <button onClick={handleAdd} disabled={!subject || !niveau || !classe}
+              className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+              {t("users.addAssignment")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinkStudentModal({ api, user, t, onClose }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); return; }
+    const timer = setTimeout(() => {
+      setSearching(true);
+      api.get("/eleves/search", { params: { q: query } })
+        .then(res => setResults(res.data || []))
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, api]);
+
+  const handleLink = async () => {
+    if (!selected) return;
+    setLinking(true);
+    try {
+      await api.put(`/eleves/${selected.id}/link-user`, { user_id: user.id });
+      pushToast("success", t("users.studentLinked"));
+      onClose();
+    } catch (err) {
+      pushToast("error", err.response?.data?.error || t("users.linkError"));
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <Link size={20} className="text-teal-600" />
+            <h2 className="text-lg font-bold text-gray-900">{t("users.linkStudent")}</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
+        </div>
+
+        <p className="text-sm text-gray-600 mb-4">{user.prenom} {user.nom} ({user.email})</p>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("users.searchStudent")}</label>
+          <input type="text" value={query} onChange={e => setQuery(e.target.value)} autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+        </div>
+
+        {searching && <div className="text-center py-4 text-sm text-gray-400"><Loader2 size={20} className="animate-spin inline-block mr-2" />Recherche...</div>}
+
+        {!searching && results.length > 0 && (
+          <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+            {results.map(s => (
+              <button key={s.id} onClick={() => setSelected(s)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm transition-all ${
+                  selected?.id === s.id ? "bg-teal-50 border border-teal-300" : "bg-gray-50 hover:bg-gray-100 border border-transparent"
+                }`}>
+                <div className="text-left">
+                  <p className="font-medium text-gray-900">{s.prenom} {s.nom}</p>
+                  <p className="text-xs text-gray-500">{s.niveau} · {s.classe} · {s.id_massar}</p>
+                </div>
+                {s.user_id && <span className="text-xs text-red-500 font-medium">{t("users.alreadyLinked")}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!searching && query.length >= 2 && results.length === 0 && (
+          <p className="text-center py-4 text-sm text-gray-400">{t("users.noStudentsFound")}</p>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={onClose}
+            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            {t("users.cancel")}
+          </button>
+          <button onClick={handleLink} disabled={!selected || linking}
+            className="flex-1 px-4 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {linking ? <Loader2 size={16} className="animate-spin mx-auto" /> : t("users.linkStudent")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

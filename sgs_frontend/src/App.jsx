@@ -6,6 +6,8 @@ import axios from 'axios';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import Notifications from './components/Notifications';
+import { SocketProvider, useSocket } from './contexts/SocketContext';
+import ChatDrawer from './components/ChatDrawer';
 
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
@@ -14,13 +16,14 @@ import RHModule from './pages/modules/RHModule';
 import FinanceModule from './pages/modules/FinanceModule';
 import SchoolLifeModule from './pages/modules/SchoolLifeModule';
 import DocumentsModule from './pages/modules/DocumentsModule';
+import TeacherModule from './pages/modules/TeacherModule';
+import StudentModule from './pages/modules/StudentModule';
 
 import UserManagement from './pages/admin/UserManagement';
 import Profile from './pages/Profile';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
-  headers: { 'Content-Type': 'application/json' },
 });
 
 api.interceptors.request.use((config) => {
@@ -36,6 +39,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setChatOpen(prev => !prev);
+    window.addEventListener('toggle-chat', handler);
+    return () => window.removeEventListener('toggle-chat', handler);
+  }, []);
 
   useEffect(() => {
     const savedLang = localStorage.getItem('i18nextLng') || 'fr';
@@ -125,25 +135,46 @@ export default function App() {
 
   return (
     <Router>
-      <div className="flex h-screen bg-gray-100">
-        <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} user={user} hasPermission={hasPermission} />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar
-            user={user}
-            api={api}
-            onLogout={handleLogout}
-            notifications={notifications}
-            unreadCount={notifications.filter(n => !n.lu).length}
-            onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-            onNotificationsUpdate={fetchNotifications}
-          />
-          <Notifications notifications={notifications} />
-          <main className="flex-1 overflow-auto">
-            <AnimatedRoutes user={user} api={api} hasPermission={hasPermission} setNotifications={setNotifications} setUser={setUser} />
-          </main>
-        </div>
-      </div>
+      <SocketProvider user={user}>
+        <AuthenticatedLayout
+          user={user} api={api} hasPermission={hasPermission}
+          sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
+          notifications={notifications} fetchNotifications={fetchNotifications}
+          handleLogout={handleLogout} setUser={setUser} setNotifications={setNotifications}
+          chatOpen={chatOpen} setChatOpen={setChatOpen}
+        />
+      </SocketProvider>
     </Router>
+  );
+}
+
+function AuthenticatedLayout({ user, api, hasPermission, sidebarOpen, setSidebarOpen, notifications, fetchNotifications, handleLogout, setUser, setNotifications, chatOpen, setChatOpen }) {
+  const { t } = useTranslation();
+  const socketCtx = useSocket();
+
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} user={user} api={api} hasPermission={hasPermission} />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Navbar
+          user={user}
+          api={api}
+          onLogout={handleLogout}
+          notifications={notifications}
+          unreadCount={notifications.filter(n => !n.lu).length}
+          onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+          onNotificationsUpdate={fetchNotifications}
+          chatUnread={socketCtx?.unreadCount || 0}
+        />
+        <Notifications notifications={notifications} />
+        <main className="flex-1 overflow-auto">
+          <AnimatedRoutes user={user} api={api} hasPermission={hasPermission} setNotifications={setNotifications} setUser={setUser} />
+        </main>
+      </div>
+      {(user?.dbRole === 'eleve' || user?.dbRole === 'enseignant') && (
+        <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} user={user} />
+      )}
+    </div>
   );
 }
 
@@ -166,6 +197,8 @@ function AnimatedRoutes({ user, api, hasPermission, setUser }) {
           <Route path="/finance/*" element={<FinanceModule user={user} api={api} hasPermission={hasPermission} />} />
           <Route path="/school-life/*" element={<SchoolLifeModule user={user} api={api} hasPermission={hasPermission} />} />
           <Route path="/documents/*" element={<DocumentsModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/teacher/*" element={<TeacherModule user={user} api={api} hasPermission={hasPermission} />} />
+          <Route path="/student/:subject?" element={<StudentModule user={user} api={api} hasPermission={hasPermission} />} />
           <Route path="/profile" element={<Profile api={api} user={user} setUser={setUser} />} />
           {user?.role === 'administrateur' && <Route path="/admin/users" element={<UserManagement api={api} user={user} />} />}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

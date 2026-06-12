@@ -36,13 +36,23 @@ const requirePermission = (requiredSlug) => {
         'hr:read_all', 'hr:validate',
         'finance:read', 'finance:generate_bilan',
         'students:read', 'students:manage',
-        'certificates:generate', 'grades:read',
+        'certificates:generate', 'grades:read', 'grades:manage',
       ],
       service_financier: [
         'finance:read', 'finance:manage_expense', 'finance:manage_revenue', 'finance:generate_bilan',
       ],
       surveillant: [
         'students:read', 'students:manage',
+      ],
+      enseignant: [
+        'grades:manage_own', 'grades:read',
+        'courses:manage', 'courses:read',
+        'students:read',
+      ],
+      eleve: [
+        'courses:read',
+        'exercises:read',
+        'profile:read',
       ],
       employe: [
         'hr:read_own', 'hr:create_request',

@@ -1,27 +1,34 @@
 import { useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { FileText, BarChart3, Upload, TrendingUp, Users, Loader2, Printer } from "lucide-react";
+import { FileText, BarChart3, Upload, TrendingUp, Users, Loader2, Printer, Save } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useTranslation } from "react-i18next";
 import { DataTable } from "../../components/ui/DataTable";
 import { pushToast } from "../../components/Notifications";
 
+const SUBJECTS = [
+  { key: "maths", labelKey: "documents.math" },
+  { key: "physique", labelKey: "documents.physics" },
+  { key: "svt", labelKey: "documents.svtShort" },
+  { key: "francais", labelKey: "documents.fr" },
+  { key: "arabe", labelKey: "documents.ar" },
+  { key: "anglais", labelKey: "documents.anglais" },
+  { key: "histoire_geo", labelKey: "documents.histoireGeo" },
+  { key: "education_islamique", labelKey: "documents.educationIslamique" },
+  { key: "informatique", labelKey: "documents.informatique" },
+  { key: "eps", labelKey: "documents.eps" },
+  { key: "musique", labelKey: "documents.musique" },
+  { key: "art", labelKey: "documents.arts" },
+];
+
+function computeAverage(grades) {
+  const vals = SUBJECTS.map(s => parseFloat(grades[s.key]) || 0).filter(v => v > 0);
+  return vals.length > 0 ? parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : 0;
+}
+
 export default function DocumentsModule({ user, api, hasPermission }) {
   const location = useLocation();
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
-
-  useEffect(() => { fetchDocuments(); }, []);
-
-  const fetchDocuments = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get("/resultats");
-      setResults(res.data.data || res.data);
-    } catch { pushToast("error", t('documents.loadError')); }
-    finally { setLoading(false); }
-  };
 
   const isActive = (path) => location.pathname.includes(path);
   const isRoot = location.pathname === "/documents" || location.pathname === "/documents/";
@@ -73,7 +80,7 @@ export default function DocumentsModule({ user, api, hasPermission }) {
         )}
         <Routes>
           <Route index element={<Navigate to="results" replace />} />
-          <Route path="results" element={<ResultsManagement results={results} api={api} onRefresh={fetchDocuments} loading={loading} />} />
+          <Route path="results" element={<ResultsManagement api={api} hasPermission={hasPermission} />} />
           <Route path="certificates" element={<CertificatesManagement api={api} user={user} />} />
         </Routes>
       </div>
@@ -81,18 +88,124 @@ export default function DocumentsModule({ user, api, hasPermission }) {
   );
 }
 
-function ResultsManagement({ results, api, onRefresh, loading }) {
-  const [trimester, setTrimester] = useState("1");
-  const [niveau, setNiveau] = useState("1AC");
+function ResultsManagement({ api, hasPermission }) {
+  const [niveaux, setNiveaux] = useState([]);
+  const [niveau, setNiveau] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [classe, setClasse] = useState("");
+  const [semestre, setSemestre] = useState("1");
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const { t } = useTranslation();
 
-  const filtered = results.filter(r => r.trimestre === parseInt(trimester) && r.niveau === niveau);
+  const canManage = hasPermission("grades:manage");
 
-  const total = filtered.length;
-  const avg = total > 0 ? (filtered.reduce((acc, curr) => acc + parseFloat(curr.moyenne_generale), 0) / total).toFixed(2) : "0.00";
-  const successCount = filtered.filter(r => parseFloat(r.moyenne_generale) >= 10).length;
-  const success = total > 0 ? ((successCount / total) * 100).toFixed(1) : "0";
+  useEffect(() => {
+    api.get("/eleves/niveaux")
+      .then(res => {
+        const list = res.data || [];
+        setNiveaux(list);
+        if (list.length > 0 && !list.find(n => n.niveau === niveau)) {
+          setNiveau(list[0].niveau);
+        }
+      })
+      .catch(() => pushToast("error", t('documents.loadError')));
+  }, []);
+
+  useEffect(() => {
+    if (!niveau) return;
+    api.get("/eleves/classes", { params: { niveau } })
+      .then(res => {
+        const list = res.data || [];
+        setClasses(list);
+        if (list.length > 0 && !list.find(c => c.classe === classe)) {
+          setClasse(list[0].classe);
+        }
+      })
+      .catch(() => pushToast("error", t('documents.loadError')));
+  }, [niveau]);
+
+  useEffect(() => {
+    if (!niveau || !classe || !semestre) return;
+    fetchData();
+  }, [niveau, classe, semestre]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/resultats/by-classe", {
+        params: { niveau, classe, semestre }
+      });
+      const merged = res.data.data || [];
+      setRows(merged.map(item => {
+        const n = item.notes || {};
+        const base = {
+          eleve: item.eleve,
+          hasNotes: item.hasNotes,
+          resultatId: n.id || null,
+          massar_id: n.massar_id || item.eleve.id_massar || "",
+          eleve_name: n.eleve_name || `${item.eleve.prenom} ${item.eleve.nom}`,
+          eleve_id: item.eleve.id,
+        };
+        for (const s of SUBJECTS) {
+          base[s.key] = n[s.key] ?? "";
+        }
+        base.moyenne_generale = n.moyenne_generale
+          ? parseFloat(n.moyenne_generale) : null;
+        return base;
+      }));
+    } catch {
+      pushToast("error", t('documents.loadError'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGradeChange = (rowIdx, subjectKey, value) => {
+    const updated = [...rows];
+    updated[rowIdx] = { ...updated[rowIdx], [subjectKey]: value };
+    const grades = {};
+    for (const s of SUBJECTS) {
+      grades[s.key] = parseFloat(updated[rowIdx][s.key]) || 0;
+    }
+    updated[rowIdx].moyenne_generale = computeAverage(grades);
+    setRows(updated);
+  };
+
+  const handleSaveAll = async () => {
+    setSaving(true);
+    try {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const payload = {
+          massar_id: row.massar_id,
+          eleve_name: row.eleve_name,
+          eleve_id: row.eleve_id,
+          niveau,
+          classe,
+          semestre: parseInt(semestre),
+        };
+        for (const s of SUBJECTS) {
+          payload[s.key] = parseFloat(row[s.key]) || 0;
+        }
+        payload.moyenne_generale = row.moyenne_generale || 0;
+
+        if (row.resultatId) {
+          await api.put(`/resultats/${row.resultatId}`, payload);
+        } else {
+          await api.post("/resultats", payload);
+        }
+      }
+      pushToast("success", t('documents.allSaved'));
+      fetchData();
+    } catch (err) {
+      pushToast("error", t('documents.errorWithMessage', { message: err.response?.data?.error || err.message }));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -123,8 +236,9 @@ function ResultsManagement({ results, api, onRefresh, loading }) {
           return {
             massar_id: String(row["ID"] || "N/A"),
             eleve_name: `${row["Prenom"] || ""} ${row["Nom"] || ""}`.trim(),
-            niveau: niveau,
-            trimestre: parseInt(trimester),
+            niveau,
+            classe,
+            semestre: parseInt(semestre),
             maths: subjects[0], physique: subjects[1], svt: subjects[2],
             francais: subjects[3], arabe: subjects[4], anglais: subjects[5],
             histoire_geo: subjects[6], education_islamique: subjects[7],
@@ -135,52 +249,63 @@ function ResultsManagement({ results, api, onRefresh, loading }) {
 
         await api.post("/resultats/upload", { resultats: processed });
         pushToast("success", t('documents.importedData', { niveau, count: processed.length }));
-        onRefresh();
+        fetchData();
       } catch (err) { pushToast("error", t('documents.errorWithMessage', { message: err.response?.data?.error || err.message })); }
       finally { setUploading(false); e.target.value = null; }
     };
     reader.readAsArrayBuffer(file);
   };
 
-  const columns = [
-    { key: "eleve_name", label: t('documents.fullName'), sortable: true, render: (r) => <span className="font-bold text-gray-900">{r.eleve_name}</span> },
-    { key: "maths", label: t('documents.math'), sortable: true, render: (r) => <span className="text-gray-600 font-medium">{r.maths}</span> },
-    { key: "physique", label: t('documents.physics'), sortable: true, render: (r) => <span className="text-gray-600 font-medium">{r.physique}</span> },
-    { key: "svt", label: t('documents.svt'), sortable: true, render: (r) => <span className="text-gray-600 font-medium">{r.svt}</span> },
-    { key: "arabe", label: t('documents.ar'), sortable: true, render: (r) => <span className="text-gray-600 font-medium">{r.arabe}</span> },
-    { key: "moyenne_generale", label: t('documents.avg'), sortable: true, render: (r) => (
-      <span className={`px-3 py-1.5 rounded-lg font-black text-sm ${
-        parseFloat(r.moyenne_generale) >= 10 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-      }`}>{r.moyenne_generale}</span>
-    )},
-  ];
+  const hasGrades = rows.some(r => r.moyenne_generale !== null && r.moyenne_generale > 0);
+  const total = rows.length;
+  const avg = hasGrades
+    ? (rows.filter(r => r.moyenne_generale).reduce((acc, r) => acc + r.moyenne_generale, 0) / rows.filter(r => r.moyenne_generale).length).toFixed(2)
+    : "0.00";
+  const successCount = rows.filter(r => r.moyenne_generale && r.moyenne_generale >= 10).length;
+  const success = successCount > 0 ? ((successCount / rows.filter(r => r.moyenne_generale).length) * 100).toFixed(1) : "0";
+
+  const inputClass = "w-16 px-2 py-1.5 border border-gray-200 rounded-lg text-sm font-medium text-center focus:ring-2 focus:ring-blue-500 outline-none";
 
   return (
     <div className="space-y-6 animate-fade-in">
-
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-6 items-center justify-between">
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-4 items-center flex-wrap">
           <div className="flex flex-col">
             <label className="text-xs font-bold text-gray-500 uppercase mb-1">{t('documents.niveau')}</label>
             <select value={niveau} onChange={e => setNiveau(e.target.value)}
               className="border border-gray-200 p-2.5 rounded-xl font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-              <option value="1AC">{t('documents.year1')}</option>
-              <option value="2AC">{t('documents.year2')}</option>
-              <option value="3AC">{t('documents.year3')}</option>
+              {niveaux.map(n => (
+                <option key={n.niveau} value={n.niveau}>{n.niveau}</option>
+              ))}
             </select>
           </div>
           <div className="flex flex-col">
-            <label className="text-xs font-bold text-gray-500 uppercase mb-1">{t('documents.trimester')}</label>
-            <select value={trimester} onChange={e => setTrimester(e.target.value)}
+            <label className="text-xs font-bold text-gray-500 uppercase mb-1">{t('documents.selectClass')}</label>
+            <select value={classe} onChange={e => setClasse(e.target.value)}
+              className="border border-gray-200 p-2.5 rounded-xl font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white min-w-[80px]">
+              {classes.map(c => (
+                <option key={c.classe} value={c.classe}>{c.classe}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs font-bold text-gray-500 uppercase mb-1">{t('documents.semester')}</label>
+            <select value={semestre} onChange={e => setSemestre(e.target.value)}
               className="border border-gray-200 p-2.5 rounded-xl font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-              <option value="1">{t('documents.trimester1')}</option>
-              <option value="2">{t('documents.trimester2')}</option>
-              <option value="3">{t('documents.trimester3')}</option>
+              <option value="1">{t('documents.semester1')}</option>
+              <option value="2">{t('documents.semester2')}</option>
             </select>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
+          {canManage && (
+            <button onClick={handleSaveAll} disabled={saving || loading}
+              className="inline-flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-sm active:scale-95 disabled:opacity-50">
+              {saving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+              {saving ? t('documents.savingAll') : t('documents.saveAll')}
+            </button>
+          )}
           <input type="file" onChange={handleFileUpload} className="hidden" id="excel-up" accept=".xlsx, .xls" />
           <label htmlFor="excel-up"
             className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-xl cursor-pointer font-bold hover:bg-blue-700 transition-all shadow-sm active:scale-95">
@@ -216,18 +341,51 @@ function ResultsManagement({ results, api, onRefresh, loading }) {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <DataTable
-          columns={columns}
-          data={filtered}
-          loading={loading}
-          searchable
-          searchKeys={["eleve_name"]}
-          searchPlaceholder={t('documents.searchStudent')}
-          pageSize={15}
-          emptyTitle={t('documents.noResults')}
-          emptyDescription={t('documents.noResultsDesc')}
-        />
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/50">
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50/50 z-10">{t('documents.fullName')}</th>
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('school.massar')}</th>
+              {SUBJECTS.map(s => (
+                <th key={s.key} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">{t(s.labelKey)}</th>
+              ))}
+              <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">{t('documents.avg')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {loading ? (
+              <tr><td colSpan={SUBJECTS.length + 3} className="p-8 text-center text-gray-400">{t('common.loading')}</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={SUBJECTS.length + 3} className="p-8 text-center text-gray-400">{t('documents.noResults')}<br /><span className="text-xs">{t('documents.noResultsDesc')}</span></td></tr>
+            ) : rows.map((row, idx) => (
+              <tr key={row.eleve.id} className="hover:bg-gray-50/50 transition-all">
+                <td className="px-4 py-2 text-sm font-bold text-gray-900 sticky left-0 bg-white hover:bg-gray-50/50 z-10">
+                  {row.eleve.prenom} {row.eleve.nom}
+                </td>
+                <td className="px-4 py-2 text-xs font-mono text-gray-500">{row.eleve.id_massar}</td>
+                {SUBJECTS.map(s => (
+                  <td key={s.key} className="px-2 py-2 text-center">
+                    {canManage ? (
+                      <input type="number" step="0.25" min="0" max="20"
+                        value={row[s.key]}
+                        onChange={(e) => handleGradeChange(idx, s.key, e.target.value)}
+                        className={inputClass}
+                        placeholder="-" />
+                    ) : (
+                      <span className="text-sm font-medium text-gray-700">{row[s.key] || "-"}</span>
+                    )}
+                  </td>
+                ))}
+                <td className="px-4 py-2 text-center">
+                  <span className={`px-3 py-1.5 rounded-lg font-black text-sm ${
+                    row.moyenne_generale && row.moyenne_generale >= 10 ? "bg-emerald-50 text-emerald-700" : row.moyenne_generale ? "bg-red-50 text-red-700" : ""
+                  }`}>{row.moyenne_generale?.toFixed(2) ?? "-"}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
